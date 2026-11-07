@@ -1,0 +1,8 @@
+# Librerías de los cuadernos 03 a 08 (además de las de pyproject.toml)
+# pip install -e . && pip install -r requirements-modelos.txt
+mlflow>=3.0
+matplotlib>=3.8
+lightgbm>=4.3
+xgboost>=2.0
+catboost>=1.2
+optuna>=3.6
