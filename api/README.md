@@ -1,17 +1,49 @@
-# api/ — modelo de BogoPrice listo para el tablero
+# api/: modelo de BogoPrice y su API
 
 Carpeta autocontenida: **no depende del resto del repositorio**. Se puede copiar sola a un contenedor Docker o a otra máquina.
 
 ```
 api/
 ├── predictor.py          ← transformación de variables + predicción (archivo único)
-├── requirements.txt      ← versiones exactas con las que se entrenaron los modelos
+├── app/                  ← servidor FastAPI (main.py, api.py, schemas/, tests/)
+├── run.sh · Dockerfile   ← arranque en el puerto 8001 y contenedor
+├── requirements.txt      ← versiones exactas con las que se entrenaron los modelos + FastAPI
 └── modelos/
     ├── modelo_v2.joblib       ← sin coordenadas
     └── modelo_v2_geo.joblib   ← con latitud y longitud
 ```
 
-## Instalación
+## Servidor de la API (FastAPI)
+
+```bash
+cd api
+pip install -r requirements.txt
+./run.sh                      # http://localhost:8001, documentación en /docs
+```
+
+Rutas (prefijo `/api/v1`):
+
+| Método | Ruta | Qué hace |
+|---|---|---|
+| GET | `/health` | Nombre, versión de la API y modelos cargados |
+| GET | `/opciones?usar_coordenadas=false` | Localidades, tipos, tipologías y amenidades para el formulario, y métricas de validación |
+| POST | `/predict` | Precio de referencia y rango sugerido. Cuerpo: columnas de Inside Airbnb y `usar_coordenadas` |
+| POST | `/explicar` | Aporte de cada variable al precio, en % y en pesos |
+
+Un anuncio que no se puede estimar (localidad no habilitada, coordenadas fuera de Bogotá) responde 422 con el motivo.
+
+Pruebas: `pip install -r test_requirements.txt && python -m pytest app/tests`.
+
+Contenedor:
+
+```bash
+docker build -t bogoprice-api api/
+docker run -p 8001:8001 bogoprice-api
+```
+
+## Uso del predictor desde Python
+
+### Instalación
 
 ```bash
 pip install -r api/requirements.txt
@@ -84,4 +116,4 @@ LightGBM con pérdida `l1` (optimiza la mediana del error), entrenado con las ca
 | `False` | 19,3 % | 81,5 % |
 | `True` | 17,4 % | 80,5 % |
 
-Para reentrenar, ejecutar `notebooks/09_modelo_final.ipynb` desde la raíz del repositorio: regenera los dos `.joblib` y `requirements.txt`, y verifica que la transformación de `predictor.py` sea idéntica a la del entrenamiento.
+Para reentrenar, ejecutar `notebooks/09_modelo_final.ipynb` desde la raíz del repositorio (o `python tablero/preparar_tablero.py`, que entrena los modelos si no existen): regenera los dos `.joblib` y `requirements.txt`, y verifica que la transformación de `predictor.py` sea idéntica a la del entrenamiento.
