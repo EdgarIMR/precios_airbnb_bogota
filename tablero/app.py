@@ -1,17 +1,23 @@
-"""Tablero BogoPrice: precio de referencia por noche para anfitriones en Bogotá.
+"""Tablero BogoPrice (maqueta de la Entrega 1, figuras 5 y 6).
 
-Dos vistas:
-  1. Estimar mi precio: formulario con las variables del modelo servible ->
-     precio de referencia, rango competitivo y comparación con anuncios similares.
-  2. Mercado: precios de la captura más reciente (septiembre 2026) por localidad
-     y tipo de alojamiento, con mapa de anuncios.
+Vistas:
+  1. Calculadora del anfitrión: formulario -> precio de referencia, rango sugerido
+     del 80 %, indicadores de comparables, posición frente a comparables y
+     contribución de cada variable en COP.
+  2. Panel de monitoreo: estado del modelo, consultas registradas, MdAPE fuera de
+     tiempo, cobertura del rango, error por localidad, estimado vs. publicado y
+     evolución del error por captura.
 
 Ejecutar desde la raíz del repo:
-    python tablero/preparar_tablero.py   # una vez: modelo + datos
+    python tablero/preparar_tablero.py   # una vez: modelo + insumos
     python tablero/app.py                # http://localhost:8050
 """
 from __future__ import annotations
 
+import csv
+import json
+import os
+from datetime import datetime
 from pathlib import Path
 
 import dash
@@ -22,13 +28,15 @@ import plotly.graph_objects as go
 from dash import Input, Output, State, dcc, html
 
 from bogoprice import config
-from servicio import predecir, version_modelo
+from servicio import contribuciones, predecir, version_modelo
 
 AQUI = Path(__file__).resolve().parent
 DATOS = pd.read_csv(AQUI / "datos" / "anuncios_tablero.csv.gz")
+METRICAS = json.loads((AQUI / "datos" / "metricas_modelo.json").read_text())
+CONSULTAS = Path(os.getenv("CONSULTAS_PATH", AQUI / "datos" / "consultas.csv"))
 
 TIPOS = {
-    "Entire home/apt": "Alojamiento entero",
+    "Entire home/apt": "Apartamento completo",
     "Private room": "Habitación privada",
     "Hotel room": "Habitación de hotel",
     "Shared room": "Habitación compartida",
@@ -36,136 +44,218 @@ TIPOS = {
 DATOS["tipo"] = DATOS["room_type"].map(TIPOS)
 LOCALIDADES = sorted(DATOS["neighbourhood_cleansed"].unique())
 AMENIDADES = {
-    "tiene_wifi": "Wifi",
-    "tiene_agua_caliente": "Agua caliente",
-    "tiene_zona_trabajo": "Zona de trabajo",
+    "tiene_wifi": "Wi-Fi",
     "tiene_parqueadero": "Parqueadero",
     "tiene_ascensor": "Ascensor",
+    "tiene_zona_trabajo": "Zona de trabajo",
+    "tiene_agua_caliente": "Agua caliente",
     "tiene_jacuzzi": "Jacuzzi",
 }
-AZUL, NARANJA, GRIS = "#1f5f8b", "#e07a1f", "#8a94a0"
+NOCHES = [1, 2, 3, 4, 7, 14, 30]
+AZUL, VERDE, NARANJA, ROJO, GRIS = "#1e3a5f", "#3aa597", "#f2a33a", "#e0525a", "#c9d3df"
+MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
 
 
 def cop(valor: float) -> str:
     return f"${valor:,.0f}".replace(",", ".")
 
 
-def campo(etiqueta: str, control) -> html.Div:
-    return html.Div([html.Label(etiqueta, className="etiqueta"), control], className="campo")
+def num(valor: float) -> str:
+    return f"{valor:,.0f}".replace(",", ".")
 
 
-def numero(id_: str, valor, minimo, maximo, paso=1):
+def pct(valor: float) -> str:
+    return f"{valor:.1f} %".replace(".", ",")
+
+
+def pct2(valor: float) -> str:
+    return f"{valor:.2f} %".replace(".", ",")
+
+
+def campo(etiqueta, control, ayuda=None):
+    hijos = [html.Label(etiqueta, className="etiqueta"), control]
+    if ayuda:
+        hijos.append(html.Div(ayuda, className="ayuda"))
+    return html.Div(hijos, className="campo")
+
+
+def numero(id_, valor, minimo, maximo, paso=1):
     return dcc.Input(id=id_, type="number", value=valor, min=minimo, max=maximo, step=paso,
-                     className="entrada", debounce=True)
+                     className="entrada")
 
 
-# --- Vista 1: estimar precio -----------------------------------------------------
-formulario = html.Div(
-    [
-        html.H3("Describe tu alojamiento"),
-        campo("Localidad", dcc.Dropdown(LOCALIDADES, "Chapinero", id="f-localidad", clearable=False)),
-        campo("Tipo de alojamiento", dcc.Dropdown(
-            [{"label": v, "value": k} for k, v in TIPOS.items()], "Entire home/apt",
-            id="f-tipo", clearable=False)),
+def tarjeta_kpi(titulo, valor, detalle=None, id_valor=None, id_detalle=None):
+    return html.Div([
+        html.Div(titulo, className="kpi-titulo"),
+        html.Div(valor, className="kpi-valor", id=id_valor) if id_valor else html.Div(valor, className="kpi-valor"),
+        html.Div(detalle, className="kpi-detalle", id=id_detalle) if id_detalle else html.Div(detalle, className="kpi-detalle"),
+    ], className="kpi")
+
+
+def grafico(id_):
+    return dcc.Graph(id=id_, config={"displayModeBar": False})
+
+
+def estilo_fig(fig, titulo=None, alto=300):
+    fig.update_layout(template="simple_white", height=alto, margin=dict(t=10, l=10, r=10, b=10),
+                      font=dict(size=11), showlegend=False)
+    return fig
+
+
+# --- Vista 1: calculadora del anfitrión -------------------------------------------------
+formulario = html.Div([
+    html.H3("Características de tu alojamiento"),
+    campo("Localidad", dcc.Dropdown(LOCALIDADES, "Chapinero", id="f-localidad", clearable=False),
+          f"Solo se incluyen localidades con al menos {config.MIN_ANUNCIOS_LOCALIDAD} anuncios para "
+          "garantizar estimaciones confiables."),
+    campo("Tipo de alojamiento", dcc.Dropdown([{"label": v, "value": k} for k, v in TIPOS.items()],
+                                              "Entire home/apt", id="f-tipo", clearable=False)),
+    html.Div([
+        campo("Huéspedes", numero("f-huespedes", 2, 1, 16)),
+        campo("Habitaciones", numero("f-habitaciones", 1, 0, 10)),
+        campo("Camas", numero("f-camas", 1, 0, 16)),
+        campo("Baños", numero("f-banos", 1, 0, 8, 0.5)),
+    ], className="fila"),
+    dcc.Checklist([{"label": "Baño compartido", "value": 1}], [], id="f-compartido",
+                  className="interruptor"),
+    campo("Noches mínimas",
+          dcc.RadioItems([{"label": "30 o más" if n == 30 else str(n), "value": n} for n in NOCHES], 2,
+                         id="f-noches", className="botonera", inputClassName="oculto"),
+          "Los anuncios de 28 noches o más suelen incluir descuento mensual."),
+    campo("Amenidades", dcc.Checklist([{"label": v, "value": k} for k, v in AMENIDADES.items()],
+                                      ["tiene_wifi", "tiene_ascensor", "tiene_zona_trabajo",
+                                       "tiene_agua_caliente"], id="f-amenidades", className="chequeo")),
+    html.Button("Calcular precio de referencia", id="f-boton", n_clicks=0, className="boton"),
+], className="tarjeta formulario")
+
+resultado = html.Div([
+    html.H2("Resultado de la estimación"),
+    html.Div(f"Modelo {version_modelo()} · Datos: Inside Airbnb Bogotá, captura de "
+             f"{METRICAS['captura_evaluacion'].lower()}", className="subtitulo"),
+    html.Div([
         html.Div([
-            campo("Huéspedes", numero("f-huespedes", 2, 1, 16)),
-            campo("Habitaciones", numero("f-habitaciones", 1, 0, 10)),
-            campo("Camas", numero("f-camas", 1, 0, 16)),
-            campo("Baños", numero("f-banos", 1, 0, 8, 0.5)),
-        ], className="fila"),
-        campo("Noches mínimas", numero("f-noches", 2, 1, 365)),
-        dcc.Checklist([{"label": " Baño compartido", "value": 1}], [], id="f-compartido",
-                      className="chequeo"),
-        campo("Amenidades", dcc.Checklist(
-            [{"label": " " + v, "value": k} for k, v in AMENIDADES.items()],
-            ["tiene_wifi", "tiene_agua_caliente"], id="f-amenidades", className="chequeo")),
-        html.Button("Estimar precio", id="f-boton", n_clicks=0, className="boton"),
-    ],
-    className="tarjeta formulario",
-)
-
-resultado = html.Div(
-    [
+            html.Div("Precio de referencia", className="kpi-titulo"),
+            html.Div([html.Span(id="r-precio", className="precio"), html.Span(" / noche", className="noche")]),
+            html.Div(id="r-rango", className="rango"),
+            html.Div(id="r-base", className="ayuda"),
+            html.Div("Este es un precio de mercado de referencia, no una garantía de reservas. "
+                     "Úsalo como punto de partida para fijar tu tarifa.", className="aviso"),
+        ], className="tarjeta principal"),
         html.Div([
-            html.Div([html.Div("Precio de referencia por noche", className="kpi-titulo"),
-                      html.Div(id="r-precio", className="kpi-valor")], className="kpi"),
-            html.Div([html.Div("Rango competitivo (P10–P90)", className="kpi-titulo"),
-                      html.Div(id="r-rango", className="kpi-valor kpi-chico")], className="kpi"),
-            html.Div([html.Div("Ubicación frente a anuncios similares", className="kpi-titulo"),
-                      html.Div(id="r-percentil", className="kpi-valor kpi-chico")], className="kpi"),
-        ], className="kpis"),
-        html.Div(id="r-nota", className="nota"),
-        dcc.Graph(id="r-similares", config={"displayModeBar": False}),
-    ],
-    className="tarjeta resultado",
-)
+            tarjeta_kpi("Mediana de comparables", "", id_valor="r-mediana", id_detalle="r-mediana-det"),
+            tarjeta_kpi("Anuncios similares", "", id_valor="r-similares-n", id_detalle="r-similares-det"),
+            tarjeta_kpi("Precio mediano en la localidad", "", id_valor="r-localidad", id_detalle="r-localidad-det"),
+        ], className="columna-kpi"),
+    ], className="fila-resultado"),
+    html.Div([
+        html.Div([html.H4("¿Dónde queda tu precio frente a los comparables?"), grafico("r-histograma")],
+                 className="tarjeta"),
+        html.Div([html.H4("Variables que más pesan en esta estimación"), grafico("r-contribuciones"),
+                  html.Div("Contribución de cada variable a la estimación frente a un alojamiento promedio "
+                           "del entrenamiento; no representa un efecto causal.", className="ayuda")],
+                 className="tarjeta"),
+    ], className="dos-columnas-iguales"),
+], className="resultado")
 
-vista_estimar = html.Div([formulario, resultado], className="dos-columnas")
+vista_calculadora = html.Div([formulario, resultado], className="dos-columnas")
 
-# --- Vista 2: mercado ---------------------------------------------------------------
-vista_mercado = html.Div(
-    [
-        html.Div([
-            campo("Localidades", dcc.Dropdown(LOCALIDADES, [], id="m-localidades", multi=True,
-                                              placeholder="Todas")),
-            campo("Tipo de alojamiento", dcc.Dropdown(
-                [{"label": v, "value": k} for k, v in TIPOS.items()], [], id="m-tipos",
-                multi=True, placeholder="Todos")),
-            campo("Huéspedes", dcc.RangeSlider(1, 16, 1, value=[1, 16], id="m-huespedes",
-                                               marks={i: str(i) for i in (1, 4, 8, 12, 16)})),
-        ], className="tarjeta filtros"),
-        html.Div(id="m-kpis", className="kpis"),
-        html.Div([
-            html.Div(dcc.Graph(id="m-localidad", config={"displayModeBar": False}), className="tarjeta"),
-            html.Div(dcc.Graph(id="m-tipo", config={"displayModeBar": False}), className="tarjeta"),
-        ], className="dos-columnas-iguales"),
-        html.Div(dcc.Graph(id="m-mapa"), className="tarjeta"),
-    ]
-)
+# --- Vista 2: panel de monitoreo ---------------------------------------------------------
+ev, en = METRICAS["evaluacion"], METRICAS["entrenamiento"]
+vigente = ev["mdape"] <= METRICAS["umbral_reentrenamiento"]
+anio, mes, dia = METRICAS["fecha_captura_evaluacion"].split("-")
+banner = html.Div([
+    html.Div("✓" if vigente else "!", className="banner-icono"),
+    html.Div([
+        html.Div(f"Estado del modelo: {'VIGENTE' if vigente else 'REQUIERE REENTRENAMIENTO'}",
+                 className="banner-titulo"),
+        html.Div(
+            f"El error en la última captura ({pct2(ev['mdape'])}) está "
+            f"{'por debajo' if vigente else 'por encima'} del umbral de reentrenamiento "
+            f"({pct(METRICAS['umbral_reentrenamiento'])}). Meta del proyecto: MdAPE ≤ "
+            f"{pct(METRICAS['meta_mdape'])}.", className="banner-texto"),
+    ]),
+], className="banner " + ("banner-ok" if vigente else "banner-alerta"))
 
-app = dash.Dash(__name__, title="BogoPrice")
+vista_monitoreo = html.Div([
+    html.H2("Panel de monitoreo del modelo"),
+    html.Div(f"Modelo {version_modelo()} · Entrenado con captura de {METRICAS['captura_entrenamiento'].lower()} "
+             f"· Evaluado con captura de {METRICAS['captura_evaluacion'].lower()}", className="subtitulo"),
+    banner,
+    html.Div([
+        tarjeta_kpi("Consultas realizadas", "", id_valor="m-consultas", id_detalle="m-consultas-det"),
+        tarjeta_kpi("MdAPE en la última captura", pct2(ev["mdape"]),
+                    f"Meta ≤ {pct(METRICAS['meta_mdape'])} · Umbral {pct(METRICAS['umbral_reentrenamiento'])}"),
+        tarjeta_kpi("Precios reales dentro del rango", pct(ev["cobertura_rango"]), "Meta ≈ 80 %"),
+        tarjeta_kpi("Última captura evaluada", f"{dia}-{MESES[int(mes) - 1]}-{anio}",
+                    f"{num(METRICAS['anuncios_evaluacion'])} anuncios"),
+    ], className="kpis"),
+    html.Div([
+        html.Div([html.H4("Consultas por localidad"), grafico("m-consultas-localidad")], className="tarjeta"),
+        html.Div([html.H4("Consultas por tipo de alojamiento"), grafico("m-consultas-tipo")], className="tarjeta"),
+        html.Div([html.H4(f"Precio estimado vs. precio publicado ({METRICAS['captura_evaluacion'].lower()})"),
+                  grafico("m-dispersion")], className="tarjeta"),
+        html.Div([html.H4("Error (MdAPE) por localidad · línea verde: meta 20 % · línea roja: umbral 25 %"), grafico("m-error-localidad")], className="tarjeta"),
+    ], className="dos-columnas-iguales"),
+    html.Div([html.H4("Evolución del error por captura"), grafico("m-evolucion")], className="tarjeta"),
+    dcc.Interval(id="m-intervalo", interval=30_000),
+])
+
+app = dash.Dash(__name__, title="BogoPrice", suppress_callback_exceptions=True)
 server = app.server
-app.layout = html.Div(
-    [
-        html.Header([
-            html.H1("BogoPrice"),
-            html.P("Precio de referencia por noche para anfitriones independientes de Airbnb en Bogotá"),
-        ], className="encabezado"),
-        dcc.Tabs(
-            [
-                dcc.Tab(vista_estimar, label="Estimar mi precio", className="pestana",
-                        selected_className="pestana-activa"),
-                dcc.Tab(vista_mercado, label="Mercado por localidad", className="pestana",
-                        selected_className="pestana-activa"),
-            ],
-            className="pestanas",
-        ),
-        html.Footer(
-            f"Datos: Inside Airbnb Bogotá, septiembre 2026 ({len(DATOS):,} anuncios en "
-            f"{len(LOCALIDADES)} localidades con ≥{config.MIN_ANUNCIOS_LOCALIDAD} anuncios). "
-            f"Modelo: {version_modelo()}. MIAD · Grupo 6.".replace(",", "."),
-            className="pie",
-        ),
-    ],
-    className="contenedor",
-)
+app.layout = html.Div([
+    html.Div([
+        html.Div("📈 BogoPrice", className="marca"),
+        dcc.Tabs(id="pestanas", value="calculadora", children=[
+            dcc.Tab(label="Calculadora del anfitrión", value="calculadora", className="pestana",
+                    selected_className="pestana-activa"),
+            dcc.Tab(label="Panel de monitoreo", value="monitoreo", className="pestana",
+                    selected_className="pestana-activa"),
+        ], className="pestanas", parent_className="pestanas-padre"),
+        html.Div("MIAD · Proyecto Académico · Grupo 6", className="marca-derecha"),
+    ], className="barra"),
+    html.Div(vista_calculadora, id="vista-calculadora", className="contenedor"),
+    html.Div(vista_monitoreo, id="vista-monitoreo", className="contenedor", style={"display": "none"}),
+    html.Footer("© 2026 MIAD · Universidad de los Andes · Despliegue de Soluciones Analíticas · Grupo 6",
+                className="pie"),
+])
 
 
-# --- Callbacks -------------------------------------------------------------------------
+@app.callback(Output("vista-calculadora", "style"), Output("vista-monitoreo", "style"),
+              Input("pestanas", "value"))
+def cambiar_vista(vista):
+    ocultar = {"display": "none"}
+    return ({}, ocultar) if vista == "calculadora" else (ocultar, {})
+
+
+# --- Callbacks de la calculadora ------------------------------------------------------------
+def registrar_consulta(anuncio, r):
+    nuevo = not CONSULTAS.exists()
+    CONSULTAS.parent.mkdir(parents=True, exist_ok=True)
+    with CONSULTAS.open("a", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        if nuevo:
+            w.writerow(["fecha", "localidad", "tipo", "huespedes", "precio_estimado"])
+        w.writerow([datetime.now().isoformat(timespec="seconds"), anuncio["neighbourhood_cleansed"],
+                    anuncio["room_type"], anuncio["accommodates"], round(r["precio"])])
+
+
 @app.callback(
-    Output("r-precio", "children"), Output("r-rango", "children"),
-    Output("r-percentil", "children"), Output("r-nota", "children"),
-    Output("r-similares", "figure"),
+    Output("r-precio", "children"), Output("r-rango", "children"), Output("r-base", "children"),
+    Output("r-mediana", "children"), Output("r-mediana-det", "children"),
+    Output("r-similares-n", "children"), Output("r-similares-det", "children"),
+    Output("r-localidad", "children"), Output("r-localidad-det", "children"),
+    Output("r-histograma", "figure"), Output("r-contribuciones", "figure"),
     Input("f-boton", "n_clicks"),
     State("f-localidad", "value"), State("f-tipo", "value"), State("f-huespedes", "value"),
     State("f-habitaciones", "value"), State("f-camas", "value"), State("f-banos", "value"),
     State("f-noches", "value"), State("f-compartido", "value"), State("f-amenidades", "value"),
 )
-def estimar(_, localidad, tipo, huespedes, habitaciones, camas, banos, noches, compartido, amenidades):
+def estimar(n_clicks, localidad, tipo, huespedes, habitaciones, camas, banos, noches, compartido, amenidades):
+    huespedes = int(huespedes or 1)
     anuncio = {
         "neighbourhood_cleansed": localidad,
         "room_type": tipo,
-        "accommodates": huespedes or 1,
+        "accommodates": huespedes,
         "bedrooms": habitaciones if habitaciones is not None else np.nan,
         "beds": camas if camas is not None else np.nan,
         "bathrooms_count": banos if banos is not None else np.nan,
@@ -174,100 +264,119 @@ def estimar(_, localidad, tipo, huespedes, habitaciones, camas, banos, noches, c
         **{k: int(k in (amenidades or [])) for k in AMENIDADES},
     }
     r = predecir(anuncio)
+    if n_clicks:
+        registrar_consulta(anuncio, r)
 
-    # Anuncios similares: misma localidad y tipo, capacidad parecida (±1 huésped)
-    sim = DATOS[(DATOS["neighbourhood_cleansed"] == localidad) & (DATOS["room_type"] == tipo)
-                & DATOS["accommodates"].between(anuncio["accommodates"] - 1, anuncio["accommodates"] + 1)]
-    if len(sim) < 30:  # muestra chica: se amplía a toda la localidad y tipo
-        sim = DATOS[(DATOS["neighbourhood_cleansed"] == localidad) & (DATOS["room_type"] == tipo)]
-    criterio = f"{TIPOS[tipo].lower()} en {localidad}"
+    # Comparables: misma localidad y tipo, 1 a 3 huéspedes alrededor del valor ingresado
+    misma = DATOS[(DATOS["neighbourhood_cleansed"] == localidad) & (DATOS["room_type"] == tipo)]
+    comp = misma[misma["accommodates"].between(huespedes - 1, huespedes + 1)]
+    desc = f"{TIPOS[tipo].lower()}s de {max(huespedes - 1, 1)} a {huespedes + 1} huéspedes en {localidad}"
+    if len(comp) < 30:
+        comp, desc = misma, f"{TIPOS[tipo].lower()}s en {localidad}"
+    precios = comp[config.TARGET]
 
-    fig = go.Figure()
-    if len(sim):
-        tope = sim[config.TARGET].quantile(0.97)
-        fig.add_histogram(x=sim.loc[sim[config.TARGET] <= tope, config.TARGET], nbinsx=40,
-                          marker_color=GRIS, opacity=0.6, name="Anuncios similares")
+    rango = (f"Rango sugerido (intervalo de predicción del 80 %): {cop(r['inferior'])} – {cop(r['superior'])}"
+             if r["inferior"] is not None else "")
+    base = f"Estimación basada en el comportamiento de {num(len(comp))} alojamientos comparables ({desc})."
+    loc_tipo = misma[config.TARGET]
+
+    # Histograma de posición relativa
+    h = go.Figure()
+    if len(comp):
+        h.add_histogram(x=precios[precios <= precios.quantile(0.97)] / 1000, nbinsx=30, marker_color=GRIS)
     if r["inferior"] is not None:
-        fig.add_vrect(x0=r["inferior"], x1=r["superior"], fillcolor=AZUL, opacity=0.12,
-                      line_width=0, annotation_text="Rango competitivo",
-                      annotation_position="top left")
-    fig.add_vline(x=r["precio"], line_color=NARANJA, line_width=3,
-                  annotation_text="Tu precio de referencia", annotation_position="top right")
-    fig.update_layout(title=f"Precio por noche de anuncios similares ({criterio}, n={len(sim)})",
-                      xaxis_title="Precio por noche (COP)", yaxis_title="Anuncios",
-                      template="simple_white", showlegend=False, margin=dict(t=60, l=50, r=20, b=50),
-                      xaxis_tickformat=",.0f")
+        h.add_vrect(x0=r["inferior"] / 1000, x1=r["superior"] / 1000, fillcolor=VERDE, opacity=0.18, line_width=0)
+    h.add_vline(x=r["precio"] / 1000, line_dash="dot", line_color=AZUL, line_width=2,
+                annotation_text="Tu precio de referencia", annotation_position="top")
+    estilo_fig(h).update_layout(xaxis_title="Miles de COP", yaxis_title="Anuncios", bargap=0.05,
+                                margin=dict(t=28, l=10, r=10, b=10))
 
-    if len(sim):
-        pct = (sim[config.TARGET] < r["precio"]).mean() * 100
-        percentil = f"Más alto que el {pct:.0f} % de los similares"
-        mediana = f"La mediana de los similares es {cop(sim[config.TARGET].median())}."
-    else:
-        percentil, mediana = "Sin anuncios similares", ""
-    rango = f"{cop(r['inferior'])} – {cop(r['superior'])}" if r["inferior"] is not None else "—"
-    nota = (f"{mediana} El rango competitivo es el intervalo donde se ubican 8 de cada 10 anuncios "
-            f"con estas características; error típico del modelo ±25 % (MdAPE en septiembre 2026).")
-    return cop(r["precio"]), rango, percentil, nota, fig
+    # Contribución de variables (las 6 de mayor magnitud)
+    c = contribuciones(anuncio)
+    c = c.reindex(c["cop"].abs().sort_values(ascending=False).index).head(6).iloc[::-1]
+    c["etiqueta"] = c["variable"] + np.where(c["cop"] >= 0, " (+)", " (−)")
+    fc = go.Figure(go.Bar(x=c["cop"], y=c["etiqueta"], orientation="h",
+                          marker_color=np.where(c["cop"] >= 0, VERDE, ROJO),
+                          text=[("+" if v >= 0 else "−") + cop(abs(v)) for v in c["cop"]],
+                          textposition="inside", insidetextanchor="middle", textfont_color="white"))
+    estilo_fig(fc).update_layout(xaxis_title="Contribución en COP", xaxis_tickformat=",.0f")
+
+    return (cop(r["precio"]), rango, base,
+            cop(precios.median()) if len(comp) else "—", f"{num(len(comp))} comparables",
+            num(len(comp)), desc.capitalize(),
+            cop(loc_tipo.median()) if len(misma) else "—", f"{TIPOS[tipo]} · {localidad}",
+            h, fc)
 
 
-def filtrar(localidades, tipos, huespedes):
-    d = DATOS
-    if localidades:
-        d = d[d["neighbourhood_cleansed"].isin(localidades)]
-    if tipos:
-        d = d[d["room_type"].isin(tipos)]
-    return d[d["accommodates"].between(*huespedes)]
+# --- Callbacks del panel de monitoreo -----------------------------------------------------------
+def leer_consultas() -> pd.DataFrame:
+    if CONSULTAS.exists():
+        return pd.read_csv(CONSULTAS)
+    return pd.DataFrame(columns=["fecha", "localidad", "tipo", "huespedes", "precio_estimado"])
+
+
+def figura_vacia(texto):
+    f = go.Figure()
+    f.add_annotation(text=texto, showarrow=False, font=dict(color="#8a94a0"))
+    f.update_xaxes(visible=False)
+    f.update_yaxes(visible=False)
+    return estilo_fig(f)
 
 
 @app.callback(
-    Output("m-kpis", "children"), Output("m-localidad", "figure"),
-    Output("m-tipo", "figure"), Output("m-mapa", "figure"),
-    Input("m-localidades", "value"), Input("m-tipos", "value"), Input("m-huespedes", "value"),
+    Output("m-consultas", "children"), Output("m-consultas-det", "children"),
+    Output("m-consultas-localidad", "figure"), Output("m-consultas-tipo", "figure"),
+    Output("m-dispersion", "figure"), Output("m-error-localidad", "figure"), Output("m-evolucion", "figure"),
+    Input("pestanas", "value"), Input("m-intervalo", "n_intervals"),
 )
-def mercado(localidades, tipos, huespedes):
-    d = filtrar(localidades, tipos, huespedes)
-    p = d[config.TARGET]
-    kpis = [
-        html.Div([html.Div(t, className="kpi-titulo"), html.Div(v, className="kpi-valor kpi-chico")],
-                 className="kpi")
-        for t, v in [
-            ("Anuncios", f"{len(d):,}".replace(",", ".")),
-            ("Precio mediano por noche", cop(p.median()) if len(d) else "—"),
-            ("Rango intercuartil (P25–P75)", f"{cop(p.quantile(.25))} – {cop(p.quantile(.75))}" if len(d) else "—"),
-            ("Alojamientos enteros", f"{(d['room_type'] == 'Entire home/apt').mean() * 100:.0f} %" if len(d) else "—"),
-        ]
-    ]
+def monitoreo(vista, _):
+    q = leer_consultas()
+    if len(q):
+        q["fecha"] = pd.to_datetime(q["fecha"])
+        q = q[q["fecha"] >= q["fecha"].max() - pd.Timedelta(days=30)]
+        pl = q["localidad"].value_counts().sort_values()
+        f_loc = estilo_fig(go.Figure(go.Bar(x=pl.values, y=pl.index, orientation="h", marker_color=AZUL)))
+        pt = q["tipo"].map(TIPOS).value_counts(normalize=True).reindex(TIPOS.values()).fillna(0) * 100
+        f_tipo = estilo_fig(go.Figure(go.Bar(x=pt.index, y=pt.values, marker_color=VERDE,
+                                             text=[f"{v:.0f} %" for v in pt.values], textposition="outside")))
+        f_tipo.update_layout(yaxis_title="% de consultas")
+    else:
+        f_loc = f_tipo = figura_vacia("Aún no hay consultas registradas")
 
-    por_loc = (d.groupby("neighbourhood_cleansed")[config.TARGET]
-               .agg(mediana="median", anuncios="size").reset_index().sort_values("mediana"))
-    f_loc = px.bar(por_loc, x="mediana", y="neighbourhood_cleansed", orientation="h",
-                   text=por_loc["mediana"].map(cop), hover_data={"anuncios": True},
-                   labels={"mediana": "Precio mediano por noche (COP)", "neighbourhood_cleansed": ""},
-                   title="Precio mediano por localidad", template="simple_white",
-                   color_discrete_sequence=[AZUL])
-    f_loc.update_traces(textposition="outside", cliponaxis=False)
-    f_loc.update_layout(margin=dict(t=50, l=10, r=40, b=40), xaxis_tickformat=",.0f")
+    # Estimado vs. publicado (muestra para que el gráfico sea liviano)
+    m = DATOS.sample(min(len(DATOS), 3000), random_state=0)
+    disp = go.Figure(go.Scattergl(x=m[config.TARGET], y=m["precio_estimado"], mode="markers",
+                                  marker=dict(size=4, color=AZUL, opacity=0.35)))
+    lim = [DATOS[config.TARGET].quantile(0.005), DATOS[config.TARGET].max()]
+    disp.add_trace(go.Scatter(x=lim, y=lim, mode="lines", line=dict(color=ROJO, dash="dash")))
+    estilo_fig(disp).update_layout(xaxis=dict(type="log", title="Precio publicado (COP)"),
+                                   yaxis=dict(type="log", title="Precio estimado (COP)"))
 
-    tope = p.quantile(0.97) if len(d) else 0
-    f_tipo = px.box(d[p <= tope], x="tipo", y=config.TARGET, points=False,
-                    labels={"tipo": "", config.TARGET: "Precio por noche (COP)"},
-                    title="Distribución del precio por tipo (hasta P97)",
-                    template="simple_white", color_discrete_sequence=[AZUL],
-                    category_orders={"tipo": list(TIPOS.values())})
-    f_tipo.update_layout(margin=dict(t=50, l=10, r=10, b=40), yaxis_tickformat=",.0f")
+    # MdAPE por localidad
+    e = pd.Series(METRICAS["mdape_por_localidad"]).sort_values()
+    colores = [VERDE if v <= METRICAS["meta_mdape"] else NARANJA if v <= METRICAS["umbral_reentrenamiento"]
+               else ROJO for v in e.values]
+    f_err = go.Figure(go.Bar(x=e.index, y=e.values, marker_color=colores,
+                             text=[f"{v:.1f}".replace(".", ",") for v in e.values], textposition="outside"))
+    f_err.add_hline(y=METRICAS["meta_mdape"], line_dash="dash", line_color=VERDE, line_width=2, layer="above")
+    f_err.add_hline(y=METRICAS["umbral_reentrenamiento"], line_dash="dash", line_color=ROJO, line_width=2, layer="above")
+    estilo_fig(f_err).update_layout(yaxis_title="MdAPE (%)",
+                                    yaxis_range=[0, max(30, e.max() + 3)])
 
-    muestra = d.sample(min(len(d), 4000), random_state=0) if len(d) else d
-    f_mapa = px.scatter_map(muestra, lat="latitude", lon="longitude", color=config.TARGET,
-                            color_continuous_scale="Viridis", range_color=(p.quantile(.05), p.quantile(.95)) if len(d) else None,
-                            hover_data={"neighbourhood_cleansed": True, "tipo": True,
-                                        config.TARGET: ":,.0f", "latitude": False, "longitude": False},
-                            labels={config.TARGET: "Precio (COP)", "neighbourhood_cleansed": "Localidad",
-                                    "tipo": "Tipo"},
-                            zoom=11, height=520, map_style="carto-positron",
-                            title="Ubicación y precio de los anuncios (muestra de hasta 4.000)")
-    f_mapa.update_traces(marker=dict(size=6, opacity=0.7))
-    f_mapa.update_layout(margin=dict(t=50, l=0, r=0, b=0))
-    return kpis, f_loc, f_tipo, f_mapa
+    # Evolución del error por captura
+    capt = [METRICAS["captura_entrenamiento"] + " (entrenamiento)", METRICAS["captura_evaluacion"] + " (evaluación)"]
+    vals = [en["mdape"], ev["mdape"]]
+    evo = go.Figure(go.Scatter(x=capt, y=vals, mode="lines+markers+text", line=dict(color=AZUL),
+                               text=[pct2(v) for v in vals], textposition="top center"))
+    evo.add_hline(y=METRICAS["umbral_reentrenamiento"], line_dash="dot", line_color=ROJO, line_width=2,
+                  annotation_text="Umbral de reentrenamiento (25 %)", annotation_position="top right")
+    evo.add_hline(y=METRICAS["meta_mdape"], line_dash="dot", line_color=VERDE, line_width=2, annotation_text="Meta (20 %)",
+                  annotation_position="top right")
+    estilo_fig(evo, alto=260).update_layout(yaxis_title="MdAPE (%)", yaxis_range=[15, 30],
+                                       xaxis_range=[-0.3, 1.3])
+
+    detalle = "Últimos 30 días" if len(q) else "Se registran desde la calculadora"
+    return num(len(q)), detalle, f_loc, f_tipo, disp, f_err, evo
 
 
 if __name__ == "__main__":
