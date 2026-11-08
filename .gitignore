@@ -14,3 +14,4 @@ catboost_info/
 # Modelo exportado: se regenera con python tablero/preparar_tablero.py
 models/*.joblib
 tablero/datos/consultas.csv
+.taste-skill/
