@@ -1,0 +1,32 @@
+{
+  "version": "v1.0 (Ridge α=0,1)",
+  "captura_entrenamiento": "Junio 2026",
+  "captura_evaluacion": "Septiembre 2026",
+  "fecha_captura_evaluacion": "2026-09-16",
+  "anuncios_evaluacion": 17561,
+  "meta_mdape": 20.0,
+  "umbral_reentrenamiento": 25.0,
+  "evaluacion": {
+    "mdape": 25.035,
+    "mae_cop": 64447.148,
+    "rmse_log": 0.432,
+    "cobertura_rango": 78.509
+  },
+  "entrenamiento": {
+    "mdape": 25.562,
+    "mae_cop": 66939.305,
+    "rmse_log": 0.437,
+    "cobertura_rango": 79.83
+  },
+  "mdape_por_localidad": {
+    "Barrios Unidos": 22.06,
+    "Candelaria": 26.02,
+    "Chapinero": 26.78,
+    "Engativa": 25.73,
+    "Fontibon": 24.26,
+    "Santa Fe": 23.96,
+    "Suba": 27.31,
+    "Teusaquillo": 24.73,
+    "Usaquen": 23.63
+  }
+}
