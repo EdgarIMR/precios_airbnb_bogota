@@ -29,13 +29,14 @@ import plotly.graph_objects as go
 from dash import Input, Output, State, dcc, html
 
 from bogoprice import config
-from servicio import contribuciones, predecir, version_modelo
+from servicio import contribuciones, opciones, origen, predecir
 
 AQUI = Path(__file__).resolve().parent
 DATOS = pd.read_csv(AQUI / "datos" / "anuncios_tablero.csv.gz")
 METRICAS = json.loads((AQUI / "datos" / "metricas_modelo.json").read_text())
 CONSULTAS = Path(os.getenv("CONSULTAS_PATH", AQUI / "datos" / "consultas.csv"))
 MLFLOW_UI = os.getenv("MLFLOW_UI_URL", "http://3.82.57.253:8050")
+OPCIONES = opciones()
 
 TIPOS = {
     "Entire home/apt": "Apartamento completo",
@@ -49,22 +50,41 @@ PLURAL = {
     "Hotel room": "habitaciones de hotel",
     "Shared room": "habitaciones compartidas",
 }
-LOCALIDADES = sorted(DATOS["neighbourhood_cleansed"].unique())
-NOMBRE_LOC = {"Engativa": "Engativá", "Fontibon": "Fontibón", "Usaquen": "Usaquén"}
-AMENIDADES = {
-    "tiene_wifi": "Wifi",
-    "tiene_agua_caliente": "Agua caliente",
-    "tiene_zona_trabajo": "Zona de trabajo",
-    "tiene_ascensor": "Ascensor",
-    "tiene_parqueadero": "Parqueadero",
-    "tiene_jacuzzi": "Jacuzzi",
+# Prefijo de property_type en Inside Airbnb para cada tipo de alojamiento
+PREFIJO_TIPO = {"Entire home/apt": "Entire", "Private room": "Private room",
+                "Hotel room": "Room in", "Shared room": "Shared room"}
+TIPOLOGIAS = {
+    "Entire rental unit": "Apartamento", "Entire condo": "Apartamento en conjunto",
+    "Entire home": "Casa", "Entire loft": "Loft", "Entire serviced apartment": "Apartamento con servicios",
+    "Entire guesthouse": "Casa de huéspedes", "Private room in rental unit": "En un apartamento",
+    "Private room in condo": "En un apartamento de conjunto", "Private room in home": "En una casa",
+    "Private room in loft": "En un loft", "Private room in serviced apartment": "En un apartamento con servicios",
+    "Private room in guesthouse": "En una casa de huéspedes", "Private room in bed and breakfast": "En un bed and breakfast",
+    "Private room in casa particular": "En una casa particular", "Room in hotel": "Hotel",
+    "Room in boutique hotel": "Hotel boutique", "Shared room in hotel": "En un hotel", "Other": "Otro",
 }
+LOCALIDADES = OPCIONES["localidades"]
+NOMBRE_LOC = {"Engativa": "Engativá", "Fontibon": "Fontibón", "Usaquen": "Usaquén"}
+AMENIDADES = OPCIONES["amenidades"]
+# Nombre de cada amenidad tal como aparece en Inside Airbnb (lo que espera la API)
+NOMBRE_AIRBNB = {
+    "tiene_wifi": "Wifi", "tiene_parqueadero": "Free parking on premises", "tiene_ascensor": "Elevator",
+    "tiene_zona_trabajo": "Dedicated workspace", "tiene_agua_caliente": "Hot water", "tiene_jacuzzi": "Hot tub",
+    "tiene_cocina": "Kitchen", "tiene_lavadora": "Washer", "tiene_aire_acondicionado": "Air conditioning",
+    "tiene_piscina": "Pool", "tiene_gimnasio": "Gym", "tiene_vista": "City skyline view",
+    "tiene_balcon": "Patio or balcony", "tiene_tv": "TV", "tiene_autocheckin": "Self check-in",
+    "acepta_mascotas": "Pets allowed",
+}
+CENTROS = DATOS.groupby("neighbourhood_cleansed")[["latitude", "longitude"]].median()
+LIMITES = {"latitude": (4.45, 4.85), "longitude": (-74.25, -73.98)}
 NOCHES = [1, 2, 3, 4, 7, 14, 30]
 AZUL, AZUL_200, MAGENTA, TINTA, GRIS, REGLA = (
     "#2391ff", "#b8d8ff", "#f70063", "#0f1b2d", "#566376", "#edf2f8")
 MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
 META, UMBRAL = METRICAS["meta_mdape"], METRICAS["umbral_reentrenamiento"]
-EV, EN = METRICAS["evaluacion"], METRICAS["entrenamiento"]
+EV, EVG = METRICAS["evaluacion"]["v2"], METRICAS["evaluacion"]["v2_geo"]
+FINAL = METRICAS["entrenamiento_final"]
+COBERTURA_NOMINAL = round((METRICAS["percentiles_rango"][1] - METRICAS["percentiles_rango"][0]) * 100)
 
 
 def loc(nombre: str) -> str:
@@ -126,8 +146,8 @@ def lateral(ruta: str):
         item("/", "Calculadora de precio", ICONO_CALC),
         html.Div("Equipo del proyecto", className="grupo"),
         item("/monitoreo", "Monitoreo del modelo", ICONO_MON),
-        html.Div([html.Strong(f"Modelo {version_modelo()}"),
-                  f"Inside Airbnb, captura del {fecha(METRICAS['fecha_captura_evaluacion'])}"],
+        html.Div([html.Strong("Modelo LightGBM v2"),
+                  f"Entrenado con {num(FINAL['n_anuncios'])} anuncios de junio y septiembre 2026"],
                  className="lateral-pie"),
     ], className="lateral", **{"aria-label": "Navegación"})
 
@@ -163,16 +183,55 @@ def fig_base(alto=260):
     return f
 
 
+TIPOLOGIA_COMUN = {"Entire home/apt": "Entire rental unit", "Private room": "Private room in rental unit",
+                   "Hotel room": "Room in hotel", "Shared room": "Shared room in hotel"}
+
+
+def opciones_tipologia(tipo):
+    prefijo = PREFIJO_TIPO[tipo]
+    return [{"label": TIPOLOGIAS.get(t, t), "value": t}
+            for t in OPCIONES["tipologias"] if t.startswith(prefijo)] + [{"label": "Otro", "value": "Other"}]
+
+
+# Rejilla invisible sobre Bogotá: en un mapa de Plotly solo se puede hacer clic sobre puntos
+_lat = np.arange(LIMITES["latitude"][0], LIMITES["latitude"][1], 0.004)
+_lon = np.arange(LIMITES["longitude"][0], LIMITES["longitude"][1], 0.004)
+REJILLA = np.array(np.meshgrid(_lat, _lon)).reshape(2, -1)
+
+
+def fig_mapa(lat, lon):
+    f = go.Figure()
+    f.add_trace(go.Scattermap(lat=REJILLA[0], lon=REJILLA[1], mode="markers",
+                              marker=dict(size=14, opacity=0.01, color=AZUL), hoverinfo="none"))
+    f.add_trace(go.Scattermap(lat=[lat], lon=[lon], mode="markers",
+                              marker=dict(size=14, color=AZUL), hoverinfo="none"))
+    f.update_layout(map=dict(style="carto-positron", center=dict(lat=lat, lon=lon), zoom=12.5),
+                    margin=dict(t=0, l=0, r=0, b=0), height=220, showlegend=False, clickmode="event")
+    return f
+
+
 # --- Pantalla 1: calculadora ----------------------------------------------------------------
 def pantalla_calculadora():
+    centro = CENTROS.loc["Chapinero"]
     formulario = html.Div([
         html.H2("Tu alojamiento"),
         campo("Localidad", dcc.Dropdown([{"label": loc(l), "value": l} for l in LOCALIDADES], "Chapinero",
                                         id="f-localidad", clearable=False),
               f"Solo aparecen las localidades con {config.MIN_ANUNCIOS_LOCALIDAD} anuncios o más; "
               "en las demás no hay datos suficientes para estimar con confianza."),
+        dcc.Checklist([{"label": "Marcar la ubicación exacta en el mapa", "value": 1}], [], id="f-geo",
+                      className="casillas"),
+        html.Div([
+            dcc.Graph(id="f-mapa", figure=fig_mapa(centro.latitude, centro.longitude),
+                      config={"displayModeBar": False, "scrollZoom": True}),
+            html.Div("Haz clic donde queda tu alojamiento. Con la ubicación exacta el modelo se equivoca "
+                     f"menos: {pct(EVG['mdape_nuevos'])} frente a {pct(EV['mdape_nuevos'])}.", className="ayuda"),
+        ], id="f-mapa-caja", className="mapa-caja", style={"display": "none"}),
+        dcc.Store(id="f-coords", data={"lat": centro.latitude, "lon": centro.longitude}),
         campo("Tipo de alojamiento", dcc.Dropdown([{"label": v, "value": k} for k, v in TIPOS.items()],
                                                   "Entire home/apt", id="f-tipo", clearable=False)),
+        campo("Tipo de inmueble", dcc.Dropdown(opciones_tipologia("Entire home/apt"), "Entire rental unit",
+                                               id="f-tipologia", clearable=False)),
         html.Div([
             campo("Huéspedes", numero("f-huespedes", 2, 1, 16), para="f-huespedes"),
             campo("Habitaciones", numero("f-habitaciones", 1, 0, 10), para="f-habitaciones"),
@@ -187,18 +246,19 @@ def pantalla_calculadora():
                                     className="casillas")),
         campo("Amenidades", dcc.Checklist([{"label": v, "value": k} for k, v in AMENIDADES.items()],
                                           ["tiene_wifi", "tiene_agua_caliente", "tiene_zona_trabajo",
-                                           "tiene_ascensor"], id="f-amenidades", className="casillas")),
+                                           "tiene_ascensor", "tiene_cocina", "tiene_tv"],
+                                          id="f-amenidades", className="casillas dos-col")),
         html.Button("Calcular precio", id="f-boton", n_clicks=0, className="boton"),
     ], className="tarjeta formulario")
 
     lider = html.Div([
-        html.Div("Precio de referencia por noche", className="lider-etq"),
+        html.Div(id="r-etq", className="lider-etq"),
         html.Div([html.Span(id="r-precio"), html.Small(" COP")], className="precio cifra"),
         html.P(id="r-rango", className="rango-texto"),
         html.P("Es un precio de mercado de referencia y no garantiza reservas. Úsalo como punto de partida "
                "para fijar tu tarifa.", className="aviso", style={"marginTop": "4px"}),
         html.Div(id="r-escala", className="escala", role="img",
-                 **{"aria-label": "Rango del 80 % frente a los comparables"}),
+                 **{"aria-label": "Rango sugerido frente a los comparables"}),
         html.Div([
             html.Div([html.Div("Mediana de los comparables", className="kpi-etq"),
                       html.Div(id="r-mediana", className="kpi-valor"),
@@ -215,14 +275,14 @@ def pantalla_calculadora():
     paneles = html.Div([
         html.Div([
             html.Div([html.H2("Dónde queda tu precio"),
-                      html.P("Precio por noche de los comparables; la franja azul es tu rango del 80 %.")],
+                      html.P("Precio por noche de los comparables; la franja azul es tu rango sugerido.")],
                      className="tarjeta-cab"),
             html.Div(dcc.Graph(id="r-histograma", config={"displayModeBar": False}), className="tarjeta-cuerpo"),
         ], className="tarjeta"),
         html.Div([
             html.Div([html.H2("Qué mueve tu precio"),
-                      html.P("Pesos por noche frente a un alojamiento promedio de junio. Es lo que pesa cada "
-                             "variable en el modelo, no un efecto causal.")], className="tarjeta-cab"),
+                      html.P("Pesos por noche que suma o resta cada variable frente al precio base del modelo. "
+                             "Describe el modelo, no un efecto causal.")], className="tarjeta-cab"),
             html.Div(id="r-contribuciones", className="barras"),
         ], className="tarjeta"),
     ], className="dos")
@@ -234,23 +294,21 @@ def pantalla_calculadora():
 
     return html.Div([
         titulo,
-        html.Div([formulario, html.Div([lider, paneles], className="resultado")], className="calc"),
+        html.Div([formulario, html.Div([lider, html.Div(id="r-error"), paneles], className="resultado")],
+                 className="calc"),
     ])
 
 
 def escala(r, precios):
-    """Rango P10-P90 y tu precio sobre la escala P3-P97 de los comparables."""
+    """Rango sugerido y tu precio sobre la escala P3-P97 de los comparables."""
     lo, hi = float(precios.quantile(0.03)), float(precios.quantile(0.97))
-    lo = min(lo, r["inferior"] if r["inferior"] is not None else lo, r["precio"])
-    hi = max(hi, r["superior"] if r["superior"] is not None else hi, r["precio"])
+    lo, hi = min(lo, r["inferior"], r["precio"]), max(hi, r["superior"], r["precio"])
     pos = lambda v: f"{(v - lo) / (hi - lo) * 100:.2f}%"
     med = float(precios.median())
-    hijos = [html.Div(className="escala-pista")]
-    if r["inferior"] is not None:
-        hijos.append(html.Div(className="escala-rango",
-                              style={"left": pos(r["inferior"]),
-                                     "width": f"{(r['superior'] - r['inferior']) / (hi - lo) * 100:.2f}%"}))
-    hijos += [
+    return [
+        html.Div(className="escala-pista"),
+        html.Div(className="escala-rango", style={"left": pos(r["inferior"]),
+                                                  "width": f"{(r['superior'] - r['inferior']) / (hi - lo) * 100:.2f}%"}),
         html.Div(className="escala-marca", style={"left": pos(med)}),
         html.Div(f"Mediana {cop(med)}", className="escala-etq abajo", style={"left": pos(med)}),
         html.Div(className="escala-tu", style={"left": pos(r["precio"])}),
@@ -258,7 +316,6 @@ def escala(r, precios):
         html.Div(cop(lo), className="escala-borde", style={"left": "0"}),
         html.Div(cop(hi), className="escala-borde", style={"right": "0"}),
     ]
-    return hijos
 
 
 def lista_contribuciones(c: pd.DataFrame):
@@ -285,28 +342,26 @@ def registrar_consulta(anuncio, r):
     with CONSULTAS.open("a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         if nuevo:
-            w.writerow(["fecha", "localidad", "tipo", "huespedes", "precio_estimado"])
+            w.writerow(["fecha", "localidad", "tipo", "huespedes", "precio_estimado", "modelo"])
         w.writerow([datetime.now().isoformat(timespec="seconds"), anuncio["neighbourhood_cleansed"],
-                    anuncio["room_type"], anuncio["accommodates"], round(r["precio"])])
+                    anuncio["room_type"], anuncio["accommodates"], round(r["precio"]), r["modelo"]])
 
 
 # --- Pantalla 2: monitoreo --------------------------------------------------------------------
 def pantalla_monitoreo():
-    vigente = EV["mdape"] <= UMBRAL
-    sobre = [loc(k) for k, v in sorted(METRICAS["mdape_por_localidad"].items(), key=lambda x: -x[1])
-             if v > UMBRAL]
-    mes = METRICAS["captura_evaluacion"].split()[0].lower()
-    if vigente:
-        hallazgo = (f"En {mes} el error mediano fue {pct(EV['mdape'], 2)}, por debajo del umbral de "
-                    f"reentrenamiento ({pct(UMBRAL, 0)}).")
-    else:
-        hallazgo = (f"En {mes} el error mediano fue {pct(EV['mdape'], 2)}, {puntos(EV['mdape'] - UMBRAL)} "
-                    f"por encima del umbral de reentrenamiento ({pct(UMBRAL, 0)}).")
+    vigente = EV["mdape_nuevos"] <= UMBRAL
+    cumple = EV["mdape_nuevos"] <= META
+    n_nuevos = num(METRICAS["anuncios_nuevos"])
+    por_loc = METRICAS["mdape_por_localidad"]
+    sobre = [loc(k) for k, v in sorted(por_loc.items(), key=lambda x: -x[1]["mdape"]) if v["mdape"] > UMBRAL]
+    ridge = METRICAS["versiones"][0]["mdape_nuevos"]
+    hallazgo = (f"En los {n_nuevos} anuncios nuevos de septiembre el error mediano es {pct(EV['mdape_nuevos'], 2)}"
+                f"{', dentro de la meta de ' + pct(META, 0) if cumple else ''}. Con la ubicación exacta baja a "
+                f"{pct(EVG['mdape_nuevos'], 2)}; el Ridge anterior tenía {pct(ridge, 2)}.")
     if len(sobre) > 1:
-        hallazgo += f" {', '.join(sobre[:-1])} y {sobre[-1]} pasan el umbral."
+        hallazgo += f" {', '.join(sobre[:-1])} y {sobre[-1]} siguen por encima del umbral."
     elif sobre:
-        hallazgo += f" {sobre[0]} pasa el umbral."
-    dif = EV["mdape"] - EN["mdape"]
+        hallazgo += f" {sobre[0]} sigue por encima del umbral."
 
     titulo = html.Div([
         html.Div([
@@ -321,34 +376,36 @@ def pantalla_monitoreo():
     ], className="titulo")
 
     kpis = html.Div([
-        html.Div([html.Div(f"Error mediano (MdAPE) en {mes}", className="kpi-etq"),
-                  html.Div(pct(EV["mdape"], 2), className="kpi-valor"),
-                  html.Div(f"Meta {pct(META, 0)} · umbral {pct(UMBRAL, 0)}", className="kpi-det")],
-                 className="lider-kpi"),
+        html.Div([html.Div("Error mediano (MdAPE) en anuncios nuevos", className="kpi-etq"),
+                  html.Div(pct(EV["mdape_nuevos"], 2), className="kpi-valor"),
+                  html.Div(f"Meta {pct(META, 0)} · umbral {pct(UMBRAL, 0)} · con ubicación "
+                           f"{pct(EVG['mdape_nuevos'], 2)}", className="kpi-det")],
+                 className="lider-kpi" + (" ok" if vigente else "")),
         html.Div([html.Div("Precios reales dentro del rango", className="kpi-etq"),
-                  html.Div(pct(EV["cobertura_rango"]), className="kpi-valor"),
-                  html.Div("Meta cercana a 80 %", className="kpi-det")]),
+                  html.Div(pct(EV["cobertura_nuevos"]), className="kpi-valor"),
+                  html.Div(f"Rango entre los percentiles 7,5 y 92,5 (meta cercana a 80 %)", className="kpi-det")]),
         html.Div([html.Div("Error absoluto medio", className="kpi-etq"),
-                  html.Div(cop(EV["mae_cop"]), className="kpi-valor"),
-                  html.Div(f"{cop(EN['mae_cop'])} en junio (entrenamiento)", className="kpi-det")]),
+                  html.Div(cop(EV["mae_nuevos"]), className="kpi-valor"),
+                  html.Div(f"{cop(EVG['mae_nuevos'])} con ubicación exacta", className="kpi-det")]),
         html.Div([html.Div("Consultas registradas", className="kpi-etq"),
                   html.Div(id="m-consultas", className="kpi-valor"),
                   html.Div(id="m-consultas-det", className="kpi-det")]),
     ], className="tarjeta kpis")
 
-    e = pd.Series(METRICAS["mdape_por_localidad"]).sort_values(ascending=False)
+    e = pd.Series({k: v["mdape"] for k, v in por_loc.items()}).sort_values(ascending=False)
     filas = []
     for nombre, v in e.items():
         clase = " neg" if v > UMBRAL else " adv" if v > META else ""
         filas.append(html.Div([
-            html.Span(loc(nombre)),
+            html.Span([loc(nombre), html.Span(f" · {por_loc[nombre]['n']}", className="sutil")]),
             html.Div(html.Div(className="barra" + clase, style={"width": f"{v / e.max() * 100:.1f}%"})),
             html.Span(pct(v), className="barra-valor"),
         ], className="barra-linea"))
     error_loc = html.Div([
         html.Div([html.H2("Error por localidad"),
-                  html.P(f"MdAPE en {mes}. Magenta: por encima del umbral de {pct(UMBRAL, 0)}. "
-                         f"Ámbar: entre la meta de {pct(META, 0)} y el umbral.")], className="tarjeta-cab"),
+                  html.P(f"MdAPE en anuncios nuevos de septiembre (junto al nombre, cuántos son). Magenta: por "
+                         f"encima del umbral de {pct(UMBRAL, 0)}. Ámbar: entre la meta de {pct(META, 0)} y el "
+                         "umbral.")], className="tarjeta-cab"),
         html.Div(filas, className="barras"),
     ], className="tarjeta")
 
@@ -360,7 +417,7 @@ def pantalla_monitoreo():
         ], className="tarjeta"),
         html.Div([
             html.Div([html.H2("Consultas por tipo de alojamiento"),
-                      html.P("Mismo periodo. Sirve para ver qué segmento usa más la calculadora.")],
+                      html.P("Mismo periodo. Muestra qué segmento usa más la calculadora.")],
                      className="tarjeta-cab"),
             html.Div(id="m-tipos", className="barras"),
         ], className="tarjeta"),
@@ -368,31 +425,31 @@ def pantalla_monitoreo():
 
     dispersion = html.Div([
         html.Div([html.H2("Precio estimado frente al publicado"),
-                  html.P(f"3.000 anuncios de {mes} tomados al azar, en escala logarítmica. "
-                         "Los puntos sobre la diagonal son aciertos.")], className="tarjeta-cab"),
+                  html.P(f"Los {n_nuevos} anuncios nuevos de septiembre, con el modelo entrenado solo con junio. "
+                         "Escala logarítmica; sobre la diagonal el modelo acierta.")], className="tarjeta-cab"),
         html.Div(dcc.Graph(figure=fig_dispersion(), config={"displayModeBar": False}), className="tarjeta-cuerpo"),
     ], className="tarjeta")
 
-    evolucion = html.Div([
-        html.Div([html.H2("Error por captura"),
-                  html.P(f"Junio es la captura de entrenamiento y {mes} la evaluación fuera de tiempo. "
-                         f"Cambio: {'+' if dif >= 0 else '−'}{puntos(abs(dif))}.")], className="tarjeta-cab"),
-        html.Div(dcc.Graph(figure=fig_evolucion(), config={"displayModeBar": False}), className="tarjeta-cuerpo"),
+    versiones = html.Div([
+        html.Div([html.H2("Error por versión del modelo"),
+                  html.P("MdAPE en los mismos anuncios nuevos de septiembre, entrenando con junio.")],
+                 className="tarjeta-cab"),
+        html.Div(dcc.Graph(figure=fig_versiones(), config={"displayModeBar": False}), className="tarjeta-cuerpo"),
     ], className="tarjeta")
 
     return html.Div([
         titulo, kpis,
         html.Div([error_loc, consultas], className="dos fila-mon"),
-        html.Div([dispersion, evolucion], className="dos"),
+        html.Div([dispersion, versiones], className="dos"),
         dcc.Interval(id="m-intervalo", interval=30_000),
     ])
 
 
 def fig_dispersion():
-    m = DATOS.sample(min(len(DATOS), 3000), random_state=0)
+    m = DATOS[DATOS["es_nuevo"] == 1]
     f = fig_base(300)
-    f.add_trace(go.Scattergl(x=m[config.TARGET], y=m["precio_estimado"], mode="markers",
-                             marker=dict(size=4, color=AZUL, opacity=0.35),
+    f.add_trace(go.Scattergl(x=m[config.TARGET], y=m["precio_validacion"], mode="markers",
+                             marker=dict(size=4, color=AZUL, opacity=0.45),
                              hovertemplate="Publicado %{x:,.0f}<br>Estimado %{y:,.0f}<extra></extra>"))
     lim = [float(m[config.TARGET].min()), float(m[config.TARGET].max())]
     f.add_trace(go.Scatter(x=lim, y=lim, mode="lines", line=dict(color=TINTA, width=1), hoverinfo="skip"))
@@ -402,21 +459,21 @@ def fig_dispersion():
     return f
 
 
-def fig_evolucion():
-    x = ["Junio 2026", METRICAS["captura_evaluacion"]]
-    y = [EN["mdape"], EV["mdape"]]
+def fig_versiones():
+    v = METRICAS["versiones"]
+    nombres, valores = [x["nombre"] for x in v], [x["mdape_nuevos"] for x in v]
+    colores = [MAGENTA if y > UMBRAL else "#ffcd54" if y > META else AZUL for y in valores]
     f = fig_base(300)
+    f.add_trace(go.Bar(x=nombres, y=valores, marker_color=colores, width=0.5,
+                       text=[pct(y, 2) for y in valores], textposition="outside", cliponaxis=False,
+                       textfont=dict(color=TINTA), hoverinfo="skip"))
     f.add_hline(y=UMBRAL, line=dict(color=MAGENTA, width=1.5, dash="dash"))
     f.add_hline(y=META, line=dict(color=GRIS, width=1, dash="dot"))
     f.add_annotation(x=1, xref="paper", y=UMBRAL, text=f"Umbral {pct(UMBRAL, 0)}", showarrow=False,
-                     xanchor="right", yanchor="top", yshift=-2, font=dict(color="#b8004a"))
+                     xanchor="right", yanchor="bottom", font=dict(color="#b8004a"))
     f.add_annotation(x=1, xref="paper", y=META, text=f"Meta {pct(META, 0)}", showarrow=False,
                      xanchor="right", yanchor="bottom")
-    f.add_trace(go.Scatter(x=x, y=y, mode="lines+markers+text", line=dict(color=AZUL, width=2),
-                           marker=dict(size=8, color=AZUL), text=[pct(v, 2) for v in y],
-                           textposition="top center", textfont=dict(color=TINTA), hoverinfo="skip"))
-    f.update_yaxes(range=[15, 30], ticksuffix=" %", title_text="MdAPE")
-    f.update_xaxes(range=[-0.4, 1.4])
+    f.update_yaxes(range=[0, 30], ticksuffix=" %", title_text="MdAPE")
     f.update_layout(margin=dict(t=8, l=56, r=8, b=32))
     return f
 
@@ -433,37 +490,74 @@ def enrutar(ruta):
     contenido = pantalla_monitoreo() if ruta == "/monitoreo" else pantalla_calculadora()
     return [barra_movil(ruta), html.Div([lateral(ruta), html.Main([
         contenido,
-        html.Footer("MIAD · Universidad de los Andes · Despliegue de Soluciones Analíticas · Grupo 6",
-                    className="pie"),
+        html.Footer(f"MIAD · Universidad de los Andes · Despliegue de Soluciones Analíticas · Grupo 6 · "
+                    f"Modelo servido por {origen()}", className="pie"),
     ], className="lienzo")], className="app")]
 
 
+@app.callback(Output("f-tipologia", "options"), Output("f-tipologia", "value"), Input("f-tipo", "value"))
+def tipologias_del_tipo(tipo):
+    opciones_ = opciones_tipologia(tipo)
+    valores = [o["value"] for o in opciones_]
+    return opciones_, TIPOLOGIA_COMUN[tipo] if TIPOLOGIA_COMUN[tipo] in valores else valores[0]
+
+
+@app.callback(Output("f-mapa-caja", "style"), Input("f-geo", "value"))
+def mostrar_mapa(geo):
+    return {} if geo else {"display": "none"}
+
+
+@app.callback(Output("f-coords", "data"), Output("f-mapa", "figure"),
+              Input("f-localidad", "value"), Input("f-mapa", "clickData"), prevent_initial_call=True)
+def mover_punto(localidad, click):
+    if dash.ctx.triggered_id == "f-mapa" and click:
+        punto = click["points"][0]
+        lat, lon = punto["lat"], punto["lon"]
+    else:
+        lat, lon = CENTROS.loc[localidad, "latitude"], CENTROS.loc[localidad, "longitude"]
+    return {"lat": float(lat), "lon": float(lon)}, fig_mapa(lat, lon)
+
+
 @app.callback(
-    Output("r-hallazgo", "children"), Output("r-precio", "children"), Output("r-rango", "children"),
-    Output("r-escala", "children"),
+    Output("r-hallazgo", "children"), Output("r-etq", "children"), Output("r-precio", "children"),
+    Output("r-rango", "children"), Output("r-escala", "children"),
     Output("r-mediana", "children"), Output("r-mediana-det", "children"),
     Output("r-n", "children"), Output("r-n-det", "children"),
     Output("r-loc", "children"), Output("r-loc-det", "children"),
-    Output("r-histograma", "figure"), Output("r-contribuciones", "children"),
+    Output("r-histograma", "figure"), Output("r-contribuciones", "children"), Output("r-error", "children"),
     Input("f-boton", "n_clicks"),
-    State("f-localidad", "value"), State("f-tipo", "value"), State("f-huespedes", "value"),
-    State("f-habitaciones", "value"), State("f-camas", "value"), State("f-banos", "value"),
-    State("f-noches", "value"), State("f-compartido", "value"), State("f-amenidades", "value"),
+    State("f-localidad", "value"), State("f-tipo", "value"), State("f-tipologia", "value"),
+    State("f-huespedes", "value"), State("f-habitaciones", "value"), State("f-camas", "value"),
+    State("f-banos", "value"), State("f-noches", "value"), State("f-compartido", "value"),
+    State("f-amenidades", "value"), State("f-geo", "value"), State("f-coords", "data"),
 )
-def estimar(n_clicks, localidad, tipo, huespedes, habitaciones, camas, banos, noches, compartido, amenidades):
+def estimar(n_clicks, localidad, tipo, tipologia, huespedes, habitaciones, camas, banos, noches,
+            compartido, amenidades, geo, coords):
     huespedes = int(huespedes or 1)
     anuncio = {
         "neighbourhood_cleansed": localidad,
         "room_type": tipo,
+        "property_type": tipologia,
         "accommodates": huespedes,
-        "bedrooms": habitaciones if habitaciones is not None else np.nan,
-        "beds": camas if camas is not None else np.nan,
-        "bathrooms_count": banos if banos is not None else np.nan,
         "minimum_nights": noches or 1,
-        "is_shared_bathroom": int(bool(compartido)),
-        **{k: int(k in (amenidades or [])) for k in AMENIDADES},
+        "amenities": [NOMBRE_AIRBNB[k] for k in (amenidades or [])],
     }
-    r = predecir(anuncio)
+    if habitaciones is not None:
+        anuncio["bedrooms"] = habitaciones
+    if camas is not None:
+        anuncio["beds"] = camas
+    if banos is not None:
+        anuncio["bathrooms_text"] = f"{banos:g} {'shared ' if compartido else ''}bath{'' if banos == 1 else 's'}"
+    usar_coordenadas = bool(geo)
+    if usar_coordenadas:
+        anuncio["latitude"], anuncio["longitude"] = coords["lat"], coords["lon"]
+
+    try:
+        r = predecir(anuncio, usar_coordenadas)
+        c = contribuciones(anuncio, usar_coordenadas)
+    except Exception as e:  # localidad no habilitada, API caída, etc.
+        aviso = html.Div(f"No se pudo calcular el precio: {e}", className="tarjeta vacio")
+        return ("", "", "Sin precio", "", [], "", "", "", "", "", "", fig_base(260), [], aviso)
     if n_clicks:
         registrar_consulta(anuncio, r)
 
@@ -481,17 +575,17 @@ def estimar(n_clicks, localidad, tipo, huespedes, habitaciones, camas, banos, no
         dif = (r["precio"] / precios.median() - 1) * 100
         hallazgo += (f" Queda {pct(abs(dif), 0)} {'por encima' if dif >= 0 else 'por debajo'} de la mediana de "
                      f"{num(len(comp))} {PLURAL[tipo]} parecidos en la misma localidad.")
-    rango = (f"8 de cada 10 alojamientos como el tuyo se publican entre {cop(r['inferior'])} y "
-             f"{cop(r['superior'])}." if r["inferior"] is not None else "")
+    etiqueta = "Precio de referencia por noche · " + ("con ubicación exacta" if usar_coordenadas else "por localidad")
+    rango = (f"Cerca de 8 de cada 10 alojamientos como el tuyo se publican entre {cop(r['inferior'])} y "
+             f"{cop(r['superior'])}.")
 
-    h = fig_base(340)
+    h = fig_base(385)
     if len(comp):
         p97 = precios.quantile(0.97)
         h.add_trace(go.Histogram(x=precios[precios <= p97] / 1000, nbinsx=32, marker_color="#cdd8e5",
                                  hovertemplate="%{x} mil: %{y} anuncios<extra></extra>"))
-    if r["inferior"] is not None:
-        h.add_vrect(x0=r["inferior"] / 1000, x1=r["superior"] / 1000, fillcolor=AZUL_200, opacity=0.45,
-                    line_width=0, layer="below")
+    h.add_vrect(x0=r["inferior"] / 1000, x1=r["superior"] / 1000, fillcolor=AZUL_200, opacity=0.45,
+                line_width=0, layer="below")
     h.add_vline(x=r["precio"] / 1000, line=dict(color=AZUL, width=2.5))
     h.add_annotation(x=r["precio"] / 1000, y=1, yref="paper", text="Tu precio", showarrow=False,
                      xanchor="left", yanchor="top", xshift=6, font=dict(color="#0a4f99", size=12))
@@ -501,12 +595,12 @@ def estimar(n_clicks, localidad, tipo, huespedes, habitaciones, camas, banos, no
 
     mediana_loc = float(misma[config.TARGET].median()) if len(misma) else None
     return (
-        hallazgo, cop(r["precio"]), rango,
+        hallazgo, etiqueta, cop(r["precio"]), rango,
         escala(r, precios) if len(comp) else [],
         cop(precios.median()) if len(comp) else "Sin datos", desc,
         num(len(comp)), f"En {loc(localidad)}, septiembre 2026",
         cop(mediana_loc) if mediana_loc else "Sin datos", f"{num(len(misma))} {PLURAL[tipo]} en {loc(localidad)}",
-        h, lista_contribuciones(contribuciones(anuncio)),
+        h, lista_contribuciones(c), None,
     )
 
 
@@ -514,8 +608,7 @@ def estimar(n_clicks, localidad, tipo, huespedes, habitaciones, camas, banos, no
               Output("m-tabla", "children"), Output("m-tipos", "children"),
               Input("m-intervalo", "n_intervals"))
 def monitoreo(_):
-    q = (pd.read_csv(CONSULTAS) if CONSULTAS.exists()
-         else pd.DataFrame(columns=["fecha", "localidad", "tipo", "huespedes", "precio_estimado"]))
+    q = pd.read_csv(CONSULTAS) if CONSULTAS.exists() else pd.DataFrame(columns=["fecha", "localidad", "tipo"])
     if len(q):
         q["fecha"] = pd.to_datetime(q["fecha"])
         q = q[q["fecha"] >= q["fecha"].max() - pd.Timedelta(days=30)]

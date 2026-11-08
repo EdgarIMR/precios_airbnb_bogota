@@ -75,11 +75,9 @@ p { margin: 0; }
 .tarjeta-cuerpo { padding: 16px 18px; }
 
 /* Calculadora */
-.calc { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: var(--gap); align-items: stretch; }
-.resultado > .dos { flex: 1; }
-.resultado > .dos > .tarjeta { display: flex; flex-direction: column; }
-.resultado > .dos > .tarjeta > .tarjeta-cuerpo { flex: 1; display: flex; align-items: center; }
-.resultado > .dos > .tarjeta > .tarjeta-cuerpo > div { width: 100%; }
+.calc { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: var(--gap); align-items: start; }
+.resultado { position: sticky; top: 16px; }
+.resultado > .dos { align-items: start; }
 .formulario { padding: 18px; }
 .formulario h2 { margin-bottom: 14px; }
 .campo { margin-bottom: 14px; }
@@ -152,6 +150,12 @@ p { margin: 0; }
 .kpis > div:last-child { border-right: 0; }
 .kpis .kpi-valor { font-size: 24px; line-height: 30px; }
 .kpis .lider-kpi .kpi-valor { font-size: 32px; line-height: 38px; font-weight: 700; color: var(--neg-ink); }
+.kpis .lider-kpi.ok .kpi-valor { color: var(--accent-ink); }
+.sutil { color: var(--muted); font-size: 12px; }
+.casillas.dos-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
+.casillas.dos-col label { font-size: 13px; }
+.mapa-caja { margin: -4px 0 14px; border-radius: var(--r-ctl); overflow: hidden; }
+.mapa-caja .ayuda { padding: 0 2px; }
 .delta-mal { color: var(--neg-ink); }
 .fila-mon { margin-bottom: var(--gap); }
 .tabla { width: 100%; border-collapse: collapse; }
@@ -167,6 +171,7 @@ p { margin: 0; }
 /* Teléfono */
 .barra-movil { display: none; }
 @media (max-width: 900px) {
+  .resultado { position: static; }
   .app { grid-template-columns: 1fr; }
   .lateral { display: none; }
   .barra-movil { display: flex; align-items: center; justify-content: space-between; height: 48px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2; }
