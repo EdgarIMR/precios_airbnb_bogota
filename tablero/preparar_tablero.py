@@ -1,17 +1,15 @@
-"""Prepara los insumos del tablero BogoPrice.
+"""Prepara los insumos del tablero BogoPrice a partir del modelo final de Edgar (LightGBM).
 
-1. Entrena el modelo servible (Ridge, alpha=0.1, variables v1 = config.FEATURES),
-   el mejor modelo lineal registrado en MLflow (experimento bogoprice-lineales).
-2. Entrena dos modelos de cuantil (P10 y P90) para el rango sugerido del 80 %.
-3. Guarda todo en models/modelo.joblib con bogoprice.exportar.guardar_modelo,
-   el mismo formato que usará la API en la semana 6. Se agregan las medias de
-   las variables transformadas en entrenamiento, que el tablero usa para la
-   contribución de cada variable en COP.
-4. Exporta los insumos de la vista de monitoreo:
-   - tablero/datos/anuncios_tablero.csv.gz: anuncios de septiembre 2026 con su
-     precio estimado y rango (comparables y gráfico estimado vs. publicado).
-   - tablero/datos/metricas_modelo.json: MdAPE por captura y por localidad,
-     cobertura del rango y datos de la captura evaluada.
+1. Si no existen api/modelos/modelo_v2.joblib y modelo_v2_geo.joblib, los entrena con
+   bogoprice.modelo_final (lo mismo que hace el cuaderno 09, sin registrar en MLflow).
+2. Repite la validación fuera de tiempo (entrena con junio, evalúa con septiembre) para el
+   panel de monitoreo. Las métricas se miden en los anuncios nuevos de septiembre, los que
+   no estaban en junio: es la prueba honesta, porque un modelo de árboles puede "recordar"
+   un anuncio que ya vio. Se incluye el Ridge v1 para comparar versiones.
+3. Exporta:
+   - tablero/datos/anuncios_tablero.csv.gz: anuncios de septiembre (comparables de la
+     calculadora y gráfico estimado frente a publicado).
+   - tablero/datos/metricas_modelo.json: métricas del panel de monitoreo.
 
 Uso (desde la raíz del repo):
     pip install -e . && pip install -r tablero/requirements.txt
@@ -24,90 +22,91 @@ from pathlib import Path
 
 import joblib
 import numpy as np
-from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.linear_model import Ridge
 
-from bogoprice import config
-from bogoprice.data_loader import cargar_train_test
-from bogoprice.exportar import guardar_modelo
-from bogoprice.features import (
-    construir_features,
-    construir_pipeline,
-    filtrar_localidades,
-    localidades_habilitadas,
-)
-from bogoprice.metrics import cobertura, mdape, metricas_precio
+from bogoprice import config, modelo_final, variables_v2
+from bogoprice.experimentos import preparar_datos
+from bogoprice.features import construir_pipeline
+from bogoprice.metrics import cobertura, mdape
 
-VERSION = "v1.0 (Ridge α=0,1)"
 DIR_DATOS = Path(__file__).resolve().parent / "datos"
-COLUMNAS_TABLERO = ["id", config.TARGET] + config.FEATURES
+
+
+def asegurar_modelos(datos) -> None:
+    """Entrena los paquetes finales si todavía no están en api/modelos."""
+    faltan = [g for g in (False, True) if not modelo_final.ruta_paquete(g).exists()]
+    if not faltan:
+        return
+    print("Entrenando el modelo final (junio + septiembre)...")
+    df, info = modelo_final.preparar_entrenamiento_final()
+    for geo in faltan:
+        validacion = modelo_final.validar(geo, datos)
+        paquete = modelo_final.entrenar_paquete(geo, df, info, validacion)
+        print("  guardado", modelo_final.guardar_paquete(paquete))
+    modelo_final.escribir_requirements_api(paquete)
 
 
 def main() -> None:
-    train, test, limite = cargar_train_test()
-    fecha_captura = str(test["last_scraped"].max())
-    train, test = construir_features(train), construir_features(test)
-    localidades = localidades_habilitadas(train)
-    train = filtrar_localidades(train, localidades)
-    test = filtrar_localidades(test, localidades)
+    datos = preparar_datos()
+    asegurar_modelos(datos)
+    test, nuevo = datos.test.copy(), datos.es_nuevo
+    y = datos.y_test_cop
 
-    X, y = train[config.FEATURES], train[config.TARGET_LOG]
+    # Validación de las dos versiones de LightGBM (modelos entrenados solo con junio)
+    evaluacion, pred_v2 = {}, None
+    for geo in (False, True):
+        version = modelo_final.version_de(geo)
+        precio, q_inf, q_sup = modelo_final._entrenar(datos.train, version)
+        X = test[variables_v2.columnas(version)]
+        pred = np.exp(precio.predict(X))
+        inf = np.minimum(np.exp(q_inf.predict(X)), pred)
+        sup = np.maximum(np.exp(q_sup.predict(X)), pred)
+        evaluacion[version] = {
+            "mdape_nuevos": mdape(y[nuevo], pred[nuevo]),
+            "cobertura_nuevos": cobertura(y[nuevo], inf[nuevo], sup[nuevo]),
+            "mae_nuevos": float(np.mean(np.abs(y[nuevo] - pred[nuevo]))),
+            "mdape_todos": mdape(y, pred),
+        }
+        if not geo:
+            pred_v2 = pred
 
-    # Modelo puntual: el mejor lineal de MLflow (Grupo6_ridge_a0.1)
-    modelo = construir_pipeline(Ridge(alpha=0.1)).fit(X, y)
+    # Ridge v1 (la línea base lineal del grupo) en el mismo esquema
+    ridge = construir_pipeline(Ridge(alpha=0.1)).fit(datos.train[config.FEATURES], datos.y_train)
+    pred_ridge = np.exp(ridge.predict(test[config.FEATURES]))
 
-    # Rango sugerido del 80 %: cuantiles 0.1 y 0.9 del log-precio
-    cuantiles = {}
-    for q in (0.1, 0.9):
-        gbm = HistGradientBoostingRegressor(loss="quantile", quantile=q, max_iter=300, random_state=0)
-        cuantiles[q] = construir_pipeline(gbm, escalar=False).fit(X, y)
-
-    # Evaluación fuera de tiempo: entrenado con junio, evaluado con septiembre
-    Xt = test[config.FEATURES]
-    test = test.assign(
-        precio_estimado=np.exp(modelo.predict(Xt)),
-        rango_inf=np.exp(cuantiles[0.1].predict(Xt)),
-        rango_sup=np.exp(cuantiles[0.9].predict(Xt)),
-    )
-    m = metricas_precio(test[config.TARGET], test["precio_estimado"])
-    m["cobertura_rango"] = cobertura(test[config.TARGET], test["rango_inf"], test["rango_sup"])
-    m_train = metricas_precio(train[config.TARGET], np.exp(modelo.predict(X)))
-    m_train["cobertura_rango"] = cobertura(
-        train[config.TARGET], np.exp(cuantiles[0.1].predict(X)), np.exp(cuantiles[0.9].predict(X))
-    )
+    test["precio_validacion"] = np.round(pred_v2, -2)
+    test["es_nuevo"] = nuevo.astype(int)
     por_localidad = {
-        loc: round(mdape(g[config.TARGET], g["precio_estimado"]), 2)
-        for loc, g in test.groupby("neighbourhood_cleansed")
+        loc: {"mdape": round(mdape(g[config.TARGET], g["precio_validacion"]), 2), "n": int(len(g))}
+        for loc, g in test[test["es_nuevo"] == 1].groupby("neighbourhood_cleansed")
     }
-    print(f"P99 junio: ${limite:,.0f} | localidades: {localidades}")
-    print("septiembre:", {k: round(v, 3) for k, v in m.items()})
-    print("junio (entrenamiento):", {k: round(v, 3) for k, v in m_train.items()})
 
-    ruta = guardar_modelo(modelo, VERSION, cuantiles[0.1], cuantiles[0.9])
-    paquete = joblib.load(ruta)
-    paquete["medias_transformadas"] = np.asarray(
-        modelo.named_steps["prep"].transform(X).mean(axis=0)
-    ).ravel()
-    joblib.dump(paquete, ruta)
-    print(f"Modelo guardado en {ruta}")
-
-    DIR_DATOS.mkdir(parents=True, exist_ok=True)
-    cols = COLUMNAS_TABLERO + ["precio_estimado", "rango_inf", "rango_sup"]
-    test[cols].round(0).to_csv(DIR_DATOS / "anuncios_tablero.csv.gz", index=False, compression="gzip")
+    final = joblib.load(modelo_final.ruta_paquete(False))
     metricas = {
-        "version": VERSION,
-        "captura_entrenamiento": "Junio 2026",
-        "captura_evaluacion": "Septiembre 2026",
-        "fecha_captura_evaluacion": fecha_captura,
+        "fecha_captura_evaluacion": str(datos.test["last_scraped"].max()),
         "anuncios_evaluacion": int(len(test)),
+        "anuncios_nuevos": int(nuevo.sum()),
         "meta_mdape": 20.0,
         "umbral_reentrenamiento": 25.0,
-        "evaluacion": {k: round(float(v), 3) for k, v in m.items()},
-        "entrenamiento": {k: round(float(v), 3) for k, v in m_train.items()},
+        "evaluacion": {k: {m: round(float(v), 3) for m, v in d.items()} for k, d in evaluacion.items()},
+        "versiones": [
+            {"nombre": "Ridge v1", "mdape_nuevos": round(mdape(y[nuevo], pred_ridge[nuevo]), 2)},
+            {"nombre": "LightGBM v2", "mdape_nuevos": round(evaluacion["v2"]["mdape_nuevos"], 2)},
+            {"nombre": "LightGBM v2 + ubicación", "mdape_nuevos": round(evaluacion["v2_geo"]["mdape_nuevos"], 2)},
+        ],
         "mdape_por_localidad": por_localidad,
+        "entrenamiento_final": final["entrenamiento"],
+        "percentiles_rango": list(final["percentiles"]),
     }
+    print(json.dumps(metricas["versiones"], ensure_ascii=False))
+    print(json.dumps(metricas["evaluacion"], ensure_ascii=False))
+
+    DIR_DATOS.mkdir(parents=True, exist_ok=True)
+    cols = ["id", config.TARGET, "neighbourhood_cleansed", "room_type", "accommodates",
+            "latitude", "longitude", "precio_validacion", "es_nuevo"]
+    test[cols].to_csv(DIR_DATOS / "anuncios_tablero.csv.gz", index=False, compression="gzip")
     (DIR_DATOS / "metricas_modelo.json").write_text(json.dumps(metricas, indent=2, ensure_ascii=False))
-    print(f"Insumos del tablero en {DIR_DATOS} ({len(test)} anuncios)")
+    print(f"Insumos del tablero en {DIR_DATOS} ({len(test)} anuncios, {int(nuevo.sum())} nuevos)")
 
 
 if __name__ == "__main__":

@@ -1,32 +1,85 @@
 {
-  "version": "v1.0 (Ridge α=0,1)",
-  "captura_entrenamiento": "Junio 2026",
-  "captura_evaluacion": "Septiembre 2026",
   "fecha_captura_evaluacion": "2026-09-16",
   "anuncios_evaluacion": 17561,
+  "anuncios_nuevos": 1632,
   "meta_mdape": 20.0,
   "umbral_reentrenamiento": 25.0,
   "evaluacion": {
-    "mdape": 25.035,
-    "mae_cop": 64447.148,
-    "rmse_log": 0.432,
-    "cobertura_rango": 78.509
+    "v2": {
+      "mdape_nuevos": 19.333,
+      "cobertura_nuevos": 81.495,
+      "mae_nuevos": 54515.861,
+      "mdape_todos": 16.389
+    },
+    "v2_geo": {
+      "mdape_nuevos": 17.397,
+      "cobertura_nuevos": 80.515,
+      "mae_nuevos": 49926.788,
+      "mdape_todos": 15.327
+    }
   },
-  "entrenamiento": {
-    "mdape": 25.562,
-    "mae_cop": 66939.305,
-    "rmse_log": 0.437,
-    "cobertura_rango": 79.83
-  },
+  "versiones": [
+    {
+      "nombre": "Ridge v1",
+      "mdape_nuevos": 25.21
+    },
+    {
+      "nombre": "LightGBM v2",
+      "mdape_nuevos": 19.33
+    },
+    {
+      "nombre": "LightGBM v2 + ubicación",
+      "mdape_nuevos": 17.4
+    }
+  ],
   "mdape_por_localidad": {
-    "Barrios Unidos": 22.06,
-    "Candelaria": 26.02,
-    "Chapinero": 26.78,
-    "Engativa": 25.73,
-    "Fontibon": 24.26,
-    "Santa Fe": 23.96,
-    "Suba": 27.31,
-    "Teusaquillo": 24.73,
-    "Usaquen": 23.63
-  }
+    "Barrios Unidos": {
+      "mdape": 14.45,
+      "n": 125
+    },
+    "Candelaria": {
+      "mdape": 27.23,
+      "n": 69
+    },
+    "Chapinero": {
+      "mdape": 17.39,
+      "n": 465
+    },
+    "Engativa": {
+      "mdape": 16.3,
+      "n": 122
+    },
+    "Fontibon": {
+      "mdape": 20.52,
+      "n": 110
+    },
+    "Santa Fe": {
+      "mdape": 21.49,
+      "n": 133
+    },
+    "Suba": {
+      "mdape": 32.15,
+      "n": 89
+    },
+    "Teusaquillo": {
+      "mdape": 22.85,
+      "n": 246
+    },
+    "Usaquen": {
+      "mdape": 20.3,
+      "n": 273
+    }
+  },
+  "entrenamiento_final": {
+    "capturas": [
+      "2026-06",
+      "2026-09"
+    ],
+    "n_anuncios": 18932,
+    "limite_p99": 1308338.5800000408
+  },
+  "percentiles_rango": [
+    0.075,
+    0.925
+  ]
 }
