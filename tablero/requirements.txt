@@ -1,0 +1,4 @@
+# Tablero BogoPrice (además de `pip install -e .` en la raíz del repo)
+dash>=2.17
+plotly>=5.24
+requests>=2.31

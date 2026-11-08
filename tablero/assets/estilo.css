@@ -1,0 +1,30 @@
+body { margin: 0; background: #f4f6f8; font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1d2733; }
+.contenedor { max-width: 1280px; margin: 0 auto; padding: 0 20px 20px; }
+.encabezado { padding: 18px 0 8px; }
+.encabezado h1 { margin: 0; color: #1f5f8b; font-size: 28px; }
+.encabezado p { margin: 4px 0 0; color: #5b6673; }
+.pestanas { margin-bottom: 14px; }
+.pestana { padding: 10px 16px !important; font-weight: 600; }
+.pestana-activa { border-top: 3px solid #1f5f8b !important; color: #1f5f8b !important; }
+.tarjeta { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); padding: 16px; margin-bottom: 14px; }
+.dos-columnas { display: grid; grid-template-columns: 340px 1fr; gap: 14px; align-items: start; }
+.dos-columnas-iguales { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.formulario h3 { margin: 0 0 10px; font-size: 17px; }
+.campo { margin-bottom: 10px; }
+.etiqueta { display: block; font-size: 13px; color: #5b6673; margin-bottom: 4px; }
+.fila { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.entrada { width: 100%; box-sizing: border-box; padding: 7px 8px; border: 1px solid #ccd3da; border-radius: 6px; font-size: 14px; }
+.chequeo label { display: flex; align-items: center; gap: 6px; font-size: 14px; margin: 3px 0; }
+.chequeo input { margin: 0; }
+.boton { width: 100%; margin-top: 8px; padding: 10px; background: #e07a1f; color: #fff; border: 0; border-radius: 6px; font-size: 15px; font-weight: 600; cursor: pointer; }
+.boton:hover { background: #c86a14; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 10px; }
+.kpi { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); padding: 12px 14px; border-left: 4px solid #1f5f8b; }
+.resultado .kpi { box-shadow: none; background: #f4f6f8; }
+.kpi-titulo { font-size: 12px; color: #5b6673; text-transform: uppercase; letter-spacing: .03em; }
+.kpi-valor { font-size: 30px; font-weight: 700; color: #e07a1f; margin-top: 4px; }
+.kpi-chico { font-size: 19px; color: #1d2733; }
+.nota { font-size: 13px; color: #5b6673; margin: 4px 0 6px; }
+.filtros { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+.pie { font-size: 12px; color: #8a94a0; margin-top: 8px; }
+@media (max-width: 900px) { .dos-columnas, .dos-columnas-iguales, .filtros { grid-template-columns: 1fr; } }
