@@ -5,6 +5,10 @@ Tablero en Dash que implementa la maqueta de la Entrega 1 (figuras 5 y 6):
 - **Calculadora del anfitrión**: el anfitrión describe su alojamiento (localidad, tipo, huéspedes, habitaciones, camas, baños, baño compartido, noches mínimas y amenidades) y recibe el precio de referencia por noche, el rango sugerido del 80 % (modelos de cuantil P10 y P90), la mediana y el número de comparables, el precio mediano de su tipo en la localidad, un histograma de posición frente a los comparables y la contribución de cada variable en COP.
 - **Panel de monitoreo**: estado del modelo (vigente o requiere reentrenamiento según el umbral de MdAPE de 25 %), consultas registradas desde la calculadora, MdAPE fuera de tiempo, cobertura del rango, consultas por localidad y tipo, precio estimado vs. publicado, MdAPE por localidad y evolución del error por captura.
 
+## Diseño
+
+Paleta: azul `#2391FF` para la serie de datos y lo tuyo (tu precio, el ítem activo), con sus tintes pálidos en las áreas; magenta `#F70063` para lo que baja el precio o pasa el umbral; ámbar `#FFCD54` para lo que está entre la meta y el umbral. Tipografía DM Sans, incluida en `assets/fonts` (licencia OFL) para que el tablero funcione sin internet y dentro de Docker.
+
 ## Ejecutar
 
 Desde la raíz del repositorio:
