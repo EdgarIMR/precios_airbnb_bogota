@@ -1,0 +1,85 @@
+{
+  "fecha_captura_evaluacion": "2026-09-16",
+  "anuncios_evaluacion": 17561,
+  "anuncios_nuevos": 1632,
+  "meta_mdape": 20.0,
+  "umbral_reentrenamiento": 25.0,
+  "evaluacion": {
+    "v2": {
+      "mdape_nuevos": 19.333,
+      "cobertura_nuevos": 81.495,
+      "mae_nuevos": 54515.861,
+      "mdape_todos": 16.389
+    },
+    "v2_geo": {
+      "mdape_nuevos": 17.397,
+      "cobertura_nuevos": 80.515,
+      "mae_nuevos": 49926.788,
+      "mdape_todos": 15.327
+    }
+  },
+  "versiones": [
+    {
+      "nombre": "Ridge v1",
+      "mdape_nuevos": 25.21
+    },
+    {
+      "nombre": "LightGBM v2",
+      "mdape_nuevos": 19.33
+    },
+    {
+      "nombre": "LightGBM v2 + ubicación",
+      "mdape_nuevos": 17.4
+    }
+  ],
+  "mdape_por_localidad": {
+    "Barrios Unidos": {
+      "mdape": 14.45,
+      "n": 125
+    },
+    "Candelaria": {
+      "mdape": 27.23,
+      "n": 69
+    },
+    "Chapinero": {
+      "mdape": 17.39,
+      "n": 465
+    },
+    "Engativa": {
+      "mdape": 16.3,
+      "n": 122
+    },
+    "Fontibon": {
+      "mdape": 20.52,
+      "n": 110
+    },
+    "Santa Fe": {
+      "mdape": 21.49,
+      "n": 133
+    },
+    "Suba": {
+      "mdape": 32.15,
+      "n": 89
+    },
+    "Teusaquillo": {
+      "mdape": 22.85,
+      "n": 246
+    },
+    "Usaquen": {
+      "mdape": 20.3,
+      "n": 273
+    }
+  },
+  "entrenamiento_final": {
+    "capturas": [
+      "2026-06",
+      "2026-09"
+    ],
+    "n_anuncios": 18932,
+    "limite_p99": 1308338.5800000408
+  },
+  "percentiles_rango": [
+    0.075,
+    0.925
+  ]
+}
