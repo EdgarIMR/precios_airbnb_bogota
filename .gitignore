@@ -5,3 +5,14 @@ __pycache__/
 env/
 .env
 *.pem
+*.egg-info/
+mlflow.db
+mlartifacts/
+mlruns/
+catboost_info/
+
+# Modelo exportado: se regenera con python tablero/preparar_tablero.py
+models/*.joblib
+tablero/datos/consultas.csv
+.taste-skill/
+.pytest_cache/

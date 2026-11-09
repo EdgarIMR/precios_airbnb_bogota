@@ -1,0 +1,189 @@
+/* BogoPrice: estilo "accent ladder" con la paleta 2391FF · FFF83F · FFCD54 · F70063.
+   El azul va solo en marcas pequeñas (serie de datos, ícono activo, tu precio);
+   sus tintes pálidos hacen el trabajo de área. Magenta = baja o fuera de umbral,
+   ámbar = advertencia, limón = resaltar lo tuyo.
+   Rejilla: barra lateral 240 + lienzo fluido con margen 32 y un solo espacio de 16. */
+
+@font-face { font-family: "DM Sans"; font-weight: 400; font-display: swap; src: url("fonts/dm-sans-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Sans"; font-weight: 500; font-display: swap; src: url("fonts/dm-sans-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Sans"; font-weight: 600; font-display: swap; src: url("fonts/dm-sans-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Sans"; font-weight: 700; font-display: swap; src: url("fonts/dm-sans-latin-700-normal.woff2") format("woff2"); }
+
+:root {
+  --ground: #f4f8fd;
+  --surface: #ffffff;
+  --border: #e2e9f2;
+  --rule: #edf2f8;
+  --control: #cdd8e5;
+  --ink: #0f1b2d;
+  --muted: #566376;
+  --accent: #2391ff;
+  --accent-ink: #0a4f99;
+  --a50: #eef6ff;
+  --a100: #dcebff;
+  --a200: #b8d8ff;
+  --neg: #f70063;
+  --neg-ink: #b8004a;
+  --neg-tint: #ffe4ef;
+  --warn: #ffcd54;
+  --warn-ink: #6e4c00;
+  --warn-tint: #fff3d3;
+  --lemon: #fff83f;
+  --gap: 16px;
+  --r-card: 8px;
+  --r-ctl: 6px;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--ground); color: var(--ink); font: 400 14px/20px "DM Sans", system-ui, sans-serif; }
+h1 { font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
+h2 { font-size: 16px; line-height: 22px; font-weight: 600; margin: 0; }
+p { margin: 0; }
+.cifra, .tabla td.num, .kpi-valor, .barra-valor { font-variant-numeric: tabular-nums; }
+
+/* Armazón */
+.app { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: 100vh; }
+.lateral { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 20px 12px; border-right: 1px solid var(--border); }
+.marca { display: flex; align-items: center; gap: 10px; padding: 0 8px; }
+.marca img { width: 28px; height: 28px; }
+.marca-nombre { font-weight: 700; font-size: 16px; }
+.ambito { margin: 14px 8px 0; padding: 8px 10px; border: 1px solid var(--control); border-radius: var(--r-ctl); background: var(--surface); font-size: 13px; color: var(--muted); }
+.ambito strong { display: block; color: var(--ink); font-weight: 500; }
+.grupo { font-size: 12px; color: var(--muted); margin: 28px 8px 8px; }
+.nav { display: flex; align-items: center; gap: 10px; height: 32px; margin-bottom: 2px; padding: 0 10px; border-radius: var(--r-ctl); color: var(--muted); text-decoration: none; }
+.nav img { width: 16px; height: 16px; opacity: .75; }
+.nav:hover { background: var(--rule); color: var(--ink); }
+.nav.activo { background: var(--a100); color: var(--accent-ink); font-weight: 500; }
+.nav.activo img { opacity: 1; }
+.lateral-pie { margin-top: auto; padding: 0 8px; font-size: 12px; color: var(--muted); }
+.lateral-pie strong { display: block; color: var(--ink); font-weight: 500; font-size: 13px; }
+
+.lienzo { padding: 32px; min-width: 0; }
+.titulo { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
+.titulo-linea { display: flex; align-items: center; gap: 12px; }
+.hallazgo { margin-top: 6px; font-size: 15px; line-height: 22px; max-width: 760px; }
+.chip { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.chip-neutro { background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
+.chip-alerta { background: var(--neg-tint); color: var(--neg-ink); }
+.chip-ok { background: var(--a100); color: var(--accent-ink); }
+.boton-sec { display: inline-flex; align-items: center; height: 34px; padding: 0 14px; border: 1px solid var(--control); border-radius: var(--r-ctl); background: var(--surface); color: var(--ink); font-weight: 500; text-decoration: none; white-space: nowrap; }
+.boton-sec:hover { border-color: var(--accent); color: var(--accent-ink); }
+
+.tarjeta { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card); }
+.tarjeta-cab { padding: 14px 18px 12px; border-bottom: 1px solid var(--rule); }
+.tarjeta-cab p { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.tarjeta-cuerpo { padding: 16px 18px; }
+
+/* Calculadora */
+.calc { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: var(--gap); align-items: start; }
+.resultado { position: sticky; top: 16px; }
+.resultado > .dos { align-items: start; }
+.formulario { padding: 18px; }
+.formulario h2 { margin-bottom: 14px; }
+.campo { margin-bottom: 14px; }
+.etiqueta { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+.ayuda { font-size: 12px; line-height: 16px; color: var(--muted); margin-top: 6px; }
+.par { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.entrada { width: 100%; height: 34px; padding: 0 10px; border: 1px solid var(--control); border-radius: var(--r-ctl); font: inherit; font-variant-numeric: tabular-nums; }
+.entrada:focus, .Select-control:focus-within { outline: 2px solid var(--a200); outline-offset: 0; border-color: var(--accent); }
+.Select-control { border-color: var(--control) !important; border-radius: var(--r-ctl) !important; height: 34px; }
+.casillas label { display: flex; align-items: center; gap: 8px; margin: 6px 0; cursor: pointer; }
+.casillas input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.botonera { display: grid; grid-template-columns: repeat(7, 1fr); border: 1px solid var(--control); border-radius: var(--r-ctl); overflow: hidden; }
+.botonera label { display: flex; justify-content: center; align-items: center; height: 32px; font-size: 13px; cursor: pointer; border-right: 1px solid var(--control); font-variant-numeric: tabular-nums; }
+.botonera label:last-child { border-right: 0; }
+.botonera label:has(input:checked) { background: var(--a100); color: var(--accent-ink); font-weight: 600; }
+.botonera input { display: none; }
+.boton { width: 100%; height: 38px; margin-top: 4px; border: 0; border-radius: var(--r-ctl); background: var(--ink); color: #fff; font: 600 14px "DM Sans", sans-serif; cursor: pointer; }
+.boton:hover { background: #22324a; }
+.boton:active { transform: translateY(1px); }
+.boton:focus-visible, .boton-sec:focus-visible, .nav:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.resultado { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
+.lider { padding: 20px 22px 0; }
+.lider-etq { font-size: 13px; color: var(--muted); }
+.precio { font-size: 40px; line-height: 46px; font-weight: 700; letter-spacing: -0.02em; margin-top: 2px; }
+.precio small { font-size: 15px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
+.rango-texto { font-size: 15px; margin-top: 6px; }
+
+/* Escalera de precio: rango P10 a P90 sobre la escala de comparables */
+.escala { position: relative; height: 74px; margin: 22px 4px 6px; }
+.escala-pista { position: absolute; top: 34px; left: 0; right: 0; height: 8px; border-radius: 4px; background: var(--rule); }
+.escala-rango { position: absolute; top: 34px; height: 8px; border-radius: 4px; background: var(--a200); }
+.escala-marca { position: absolute; top: 26px; width: 2px; height: 24px; background: var(--ink); transform: translateX(-1px); }
+.escala-tu { position: absolute; top: 30px; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 3px solid #fff; outline: 1px solid var(--accent); transform: translateX(-8px); }
+.escala-etq { position: absolute; font-size: 12px; line-height: 16px; white-space: nowrap; transform: translateX(-50%); font-variant-numeric: tabular-nums; }
+.escala-etq.arriba { top: 4px; }
+.escala-etq.abajo { top: 54px; color: var(--muted); }
+.escala-etq.tu { font-weight: 600; color: var(--accent-ink); }
+.escala-borde { position: absolute; top: 54px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.franja { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--rule); margin: 14px -22px 0; }
+.franja > div { padding: 14px 22px 16px; border-right: 1px solid var(--rule); }
+.franja > div:last-child { border-right: 0; }
+.kpi-etq { font-size: 13px; color: var(--muted); }
+.kpi-valor { font-size: 22px; line-height: 28px; font-weight: 600; margin-top: 2px; }
+.kpi-det { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+.dos { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--gap); }
+.aviso { font-size: 12px; color: var(--muted); }
+
+/* Lista de barras ordenada */
+.barras { padding: 6px 18px 14px; }
+.barra-fila { padding: 9px 0; }
+.barra-cab { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; }
+.barra-pista { display: flex; align-items: center; gap: 6px; }
+.barra { height: 10px; border-radius: 5px; background: var(--accent); }
+.barra.neg { background: var(--neg); }
+.barra.adv { background: var(--warn); }
+.barra-valor { font-size: 13px; font-weight: 500; }
+.diverge { display: grid; grid-template-columns: 1fr 1fr; align-items: center; }
+.diverge .izq { display: flex; justify-content: flex-end; border-right: 1px solid var(--control); padding-right: 0; }
+.diverge .der { display: flex; justify-content: flex-start; }
+
+/* Monitoreo */
+.barra-linea { display: grid; grid-template-columns: 170px minmax(0, 1fr) 64px; align-items: center; gap: 12px; height: 36px; font-size: 13px; }
+.barra-linea .barra-valor { text-align: right; }
+.pila { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); margin-bottom: var(--gap); }
+.kpis > div { padding: 16px 18px; border-right: 1px solid var(--rule); }
+.kpis > div:last-child { border-right: 0; }
+.kpis .kpi-valor { font-size: 24px; line-height: 30px; }
+.kpis .lider-kpi .kpi-valor { font-size: 32px; line-height: 38px; font-weight: 700; color: var(--neg-ink); }
+.kpis .lider-kpi.ok .kpi-valor { color: var(--accent-ink); }
+.sutil { color: var(--muted); font-size: 12px; }
+.casillas.dos-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
+.casillas.dos-col label { font-size: 13px; }
+.mapa-caja { margin: -4px 0 14px; border-radius: var(--r-ctl); overflow: hidden; }
+.mapa-caja .ayuda { padding: 0 2px; }
+.delta-mal { color: var(--neg-ink); }
+.fila-mon { margin-bottom: var(--gap); }
+.tabla { width: 100%; border-collapse: collapse; }
+.tabla th { font-size: 12px; font-weight: 500; color: var(--muted); text-align: left; padding: 10px 18px 8px; border-bottom: 1px solid var(--rule); }
+.tabla td { padding: 0 18px; height: 44px; border-bottom: 1px solid var(--rule); }
+.tabla tr:last-child td { border-bottom: 0; }
+.tabla .num { text-align: right; }
+.tabla th.num { text-align: right; }
+.vacio { padding: 28px 18px; color: var(--muted); text-align: center; }
+
+.pie { margin-top: 24px; font-size: 12px; color: var(--muted); }
+
+/* Teléfono */
+.barra-movil { display: none; }
+@media (max-width: 900px) {
+  .resultado { position: static; }
+  .app { grid-template-columns: 1fr; }
+  .lateral { display: none; }
+  .barra-movil { display: flex; align-items: center; justify-content: space-between; height: 48px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2; }
+  .barra-movil a { color: var(--accent-ink); text-decoration: none; font-weight: 500; font-size: 13px; }
+  .lienzo { padding: 16px; }
+  .titulo { flex-direction: column; gap: 12px; }
+  .calc, .dos { grid-template-columns: 1fr; }
+  .kpis { grid-template-columns: 1fr 1fr; }
+  .kpis > div:nth-child(2) { border-right: 0; }
+  .kpis > div:nth-child(-n+2) { border-bottom: 1px solid var(--rule); }
+  .franja { grid-template-columns: 1fr; }
+  .franja > div { border-right: 0; border-bottom: 1px solid var(--rule); }
+  .precio { font-size: 34px; line-height: 40px; }
+  h1 { font-size: 24px; line-height: 30px; }
+}
