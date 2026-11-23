@@ -1,4 +1,4 @@
-# Versiones con las que se entrenaron los modelos (cuaderno 09)
+mlflow
 lightgbm==4.7.0
 scikit-learn==1.9.1
 pandas==3.0.5
