@@ -18,6 +18,7 @@ def registrar_corrida(nombre: str, params: dict, metricas: dict, pipeline=None,
     with mlflow.start_run(run_name=nombre) as run:
         mlflow.log_params(params)
         mlflow.log_metrics(metricas)
+        # Por defecto se etiquetan las variables v1; las corridas v2 pasan las suyas en `tags`
         mlflow.set_tags({"features": ",".join(config.FEATURES), **(tags or {})})
         if pipeline is not None:
             # Argumento posicional: funciona en MLflow 2.x y 3.x.

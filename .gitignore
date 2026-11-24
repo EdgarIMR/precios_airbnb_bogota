@@ -1,18 +1,21 @@
+# Python
 __pycache__/
 *.pyc
+*.egg-info/
+.pytest_cache/
 .ipynb_checkpoints/
 .venv/
 env/
+
+# Secretos y llaves (usar .env.example como plantilla)
 .env
 *.pem
-*.egg-info/
+
+# MLflow y CatBoost locales
 mlflow.db
 mlartifacts/
 mlruns/
 catboost_info/
 
-# Modelo exportado: se regenera con python tablero/preparar_tablero.py
-models/*.joblib
+# Consultas registradas por el tablero (se generan al usarlo)
 tablero/datos/consultas.csv
-.taste-skill/
-.pytest_cache/

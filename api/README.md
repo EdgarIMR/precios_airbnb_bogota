@@ -19,6 +19,7 @@ api/
 cd api
 pip install -r requirements.txt
 ./run.sh                      # http://localhost:8001, documentación en /docs
+# En Windows: python -m uvicorn app.main:app --port 8001
 ```
 
 Rutas (prefijo `/api/v1`):
@@ -38,8 +39,10 @@ Contenedor:
 
 ```bash
 docker build -t bogoprice-api api/
-docker run -p 8001:8001 bogoprice-api
+docker run -d -p 8001:8001 --name bogoprice-api bogoprice-api
 ```
+
+Para levantar API y tablero juntos, usar `docker compose up -d --build` desde la raíz del repositorio (ver el README principal).
 
 ## Uso del predictor desde Python
 
@@ -85,9 +88,9 @@ anuncio = {"neighbourhood_cleansed": "Chapinero", "room_type": "Entire home/apt"
            "minimum_nights": 2, "latitude": 4.6486, "longitude": -74.0603}
 
 predictor.predecir(anuncio, usar_coordenadas=True)
-# {'precio_referencia': 149500.0, 'rango_inferior': 130200.0, 'rango_superior': 220900.0,
+# {'precio_referencia': ..., 'rango_inferior': ..., 'rango_superior': ...,
 #  'moneda': 'COP', 'modelo': 'LightGBM v2_geo', 'usar_coordenadas': True,
-#  'mdape_validacion': 17.4, 'cobertura_rango_validacion': 80.5}
+#  'mdape_validacion': 17.7, 'cobertura_rango_validacion': 80.5}
 ```
 
 Si el anuncio no se puede estimar (localidad no habilitada, faltan coordenadas con `usar_coordenadas=True`, etc.), lanza `ValueError` con el motivo.
@@ -109,11 +112,11 @@ Devuelve una fila por anuncio con `precio_referencia`, `rango_inferior`, `rango_
 
 ## Modelos
 
-LightGBM con pérdida `l1` (optimiza la mediana del error), entrenado con las capturas de junio y septiembre de 2026. Validación (entrenado con junio, evaluado con anuncios nuevos de septiembre):
+LightGBM con pérdida `l1` (optimiza la mediana del error), 1.500 árboles, `learning_rate=0.015`, `num_leaves=23`, `min_child_samples=20`, `subsample=0.8`, `colsample_bytree=0.7` (elegidos por validación cruzada de 10 pliegues en el cuaderno 04), entrenado con las capturas de junio y septiembre de 2026. Prueba final (entrenado con junio, evaluado con los 1.632 anuncios nuevos de septiembre):
 
-| `usar_coordenadas` | MdAPE | Cobertura del rango sugerido |
-|---|---|---|
-| `False` | 19,3 % | 81,5 % |
-| `True` | 17,4 % | 80,5 % |
+| `usar_coordenadas` | MdAPE (IC 95 %) | MAE | Cobertura del rango sugerido |
+|---|---|---|---|
+| `False` | 20,1 % (19,0–21,7 %) | $53.853 | 81,5 % |
+| `True` | 17,7 % (16,9–18,8 %) | $50.467 | 80,5 % |
 
-Para reentrenar, ejecutar `notebooks/09_modelo_final.ipynb` desde la raíz del repositorio (o `python tablero/preparar_tablero.py`, que entrena los modelos si no existen): regenera los dos `.joblib` y `requirements.txt`, y verifica que la transformación de `predictor.py` sea idéntica a la del entrenamiento.
+Para reentrenar, ejecutar `notebooks/09_modelo_final.ipynb` desde la raíz del repositorio (o `python tablero/preparar_tablero.py --reentrenar`): regenera los dos `.joblib` y `requirements.txt`, y verifica que la transformación de `predictor.py` sea idéntica a la del entrenamiento.

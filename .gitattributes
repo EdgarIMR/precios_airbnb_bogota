@@ -1,0 +1,4 @@
+# Los scripts que se ejecutan dentro de los contenedores (Linux) deben usar LF
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf

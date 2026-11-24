@@ -13,9 +13,9 @@ Hay dos versiones, según el booleano ``usar_coordenadas``:
     True  -> conjunto v2_geo  (v2 + latitud y longitud, p. ej. desde un mapa)
 
 Los paquetes se guardan en api/modelos/. La carpeta api/ (con api/predictor.py)
-funciona sola: no necesita este paquete para predecir. El paquete conserva las claves
-de ``exportar.guardar_modelo`` (modelo, q_inf, q_sup, version) y agrega lo que la API
-y el tablero necesitan.
+funciona sola: no necesita este paquete para predecir. Cada paquete trae los tres
+modelos (modelo, q_inf, q_sup) y lo que la API y el tablero necesitan (columnas,
+localidades, tipologías, métricas de validación y versiones de las librerías).
 """
 from __future__ import annotations
 
@@ -33,17 +33,36 @@ from .data_loader import cargar_y_limpiar, filtrar_precio, limite_atipicos
 from .features import construir_features, filtrar_localidades, localidades_habilitadas
 from .metrics import cobertura, mdape
 
-# --- Configuración elegida en el cuaderno 04 (grilla objective x learning_rate) -----------
-BASE_LGBM = {"n_estimators": 1500, "num_leaves": 63, "max_depth": -1, "min_child_samples": 20,
-             "subsample": 0.8, "subsample_freq": 1, "colsample_bytree": 0.7,
-             "reg_lambda": 0.0, "reg_alpha": 0.0}
-
-PARAMETROS_PRECIO = {
-    "v2": BASE_LGBM | {"objective": "l1", "learning_rate": 0.02},      # 19,33 % MdAPE nuevos
-    "v2_geo": BASE_LGBM | {"objective": "l1", "learning_rate": 0.01},  # 17,40 % MdAPE nuevos
+# --- Configuración elegida en el cuaderno 04 -------------------------------------------------
+# Selección por validación cruzada de 10 pliegues sobre junio (secciones 2, 3, 3b y 3c):
+# objective="l1" (estima la mediana del precio), 23 hojas y learning_rate=0,015 para los dos
+# conjuntos; el resto queda en la configuración base. Prueba final (entrenado con junio,
+# medido en los 1.632 anuncios nuevos de septiembre):
+#     v2      MdAPE CV 20,53 %  ->  MdAPE nuevos 20,14 % (IC 95 %: 19,02-21,66 %)
+#     v2_geo  MdAPE CV 19,50 %  ->  MdAPE nuevos 17,74 % (IC 95 %: 16,87-18,81 %)
+PARAMETROS_LGBM = {
+    "objective": "l1",          # pérdida absoluta: estima la mediana del precio
+    "n_estimators": 1500,       # número de árboles
+    "learning_rate": 0.015,     # tasa de aprendizaje
+    "num_leaves": 23,           # hojas por árbol
+    "max_depth": -1,            # sin límite de profundidad
+    "min_child_samples": 20,    # anuncios mínimos por hoja
+    "subsample": 0.8,           # fracción de anuncios por árbol
+    "subsample_freq": 1,        # el submuestreo se aplica en cada árbol
+    "colsample_bytree": 0.7,    # fracción de variables por árbol
+    "reg_lambda": 0.0,          # sin regularización L2
+    "reg_alpha": 0.0,           # sin regularización L1
 }
 
-# Rango sugerido: regresión cuantílica (cuaderno 07)
+PARAMETROS_PRECIO = {
+    "v2": dict(PARAMETROS_LGBM),
+    "v2_geo": dict(PARAMETROS_LGBM),
+}
+
+# Rango sugerido: regresión cuantílica (cuaderno 07), percentiles 7,5 y 92,5.
+# Se conserva la tasa base (0,03): como el precio de referencia se fuerza a quedar dentro del
+# rango (min/max con la predicción), la cobertura en anuncios nuevos ya es 81,5 % (v2) y
+# 80,5 % (v2_geo), cerca de la meta del 80 % y con un rango más angosto que con 0,01.
 PERCENTILES = (0.075, 0.925)
 PARAMETROS_RANGO = {"n_estimators": 600, "learning_rate": 0.03, "num_leaves": 31,
                     "min_child_samples": 30, "subsample": 0.8, "subsample_freq": 1,
@@ -70,10 +89,13 @@ def escribir_requirements_api(paquete: dict) -> Path:
     """Escribe api/requirements.txt con las versiones exactas usadas en el entrenamiento."""
     v = paquete["versiones"]
     ruta = CARPETA_API / "requirements.txt"
+    # Se conservan las dependencias del servidor: sin ellas la imagen de la API no arranca
     ruta.write_text(
         "# Versiones con las que se entrenaron los modelos (generado por el cuaderno 09)\n"
         f"lightgbm=={v['lightgbm']}\nscikit-learn=={v['scikit-learn']}\n"
-        f"pandas=={v['pandas']}\nnumpy=={v['numpy']}\njoblib\n")
+        f"pandas=={v['pandas']}\nnumpy=={v['numpy']}\njoblib\n"
+        "# Servidor de la API\n"
+        "fastapi>=0.115,<1.0\nuvicorn>=0.30,<1.0\n", encoding="utf-8")
     return ruta
 
 
@@ -154,7 +176,7 @@ def entrenar_paquete(usar_coordenadas: bool, df: pd.DataFrame | None = None,
     version = version_de(usar_coordenadas)
     precio, q_inf, q_sup = _entrenar(df, version)
     return {
-        # Claves compatibles con exportar.guardar_modelo
+        # Modelos de precio y rango
         "modelo": precio, "q_inf": q_inf, "q_sup": q_sup, "version": version,
         # Información para la API y el tablero
         "usar_coordenadas": usar_coordenadas,
@@ -179,10 +201,3 @@ def guardar_paquete(paquete: dict, ruta: Path | str | None = None) -> Path:
     joblib.dump(paquete, ruta, compress=3)
     return ruta
 
-
-def cargar_paquete(usar_coordenadas: bool = False, ruta: Path | str | None = None) -> dict:
-    ruta = Path(ruta or ruta_paquete(usar_coordenadas))
-    if not ruta.exists():
-        raise FileNotFoundError(
-            f"No existe {ruta}. Ejecute el cuaderno 09_modelo_final para generar los modelos.")
-    return joblib.load(ruta)

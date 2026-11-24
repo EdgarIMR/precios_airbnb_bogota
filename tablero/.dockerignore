@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+datos/consultas.csv
+preparar_tablero.py

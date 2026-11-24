@@ -1,0 +1,36 @@
+# Despliegue de BogoPrice: API (FastAPI + modelos LightGBM) y tablero (Dash)
+#   docker compose up -d --build
+#   API:     http://<host>:8001/docs
+#   Tablero: http://<host>:8050
+services:
+  api:
+    build: ./api
+    image: bogoprice-api
+    container_name: bogoprice-api
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/api/v1/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  tablero:
+    build: ./tablero
+    image: bogoprice-tablero
+    container_name: bogoprice-tablero
+    environment:
+      API_URL: http://api:8001
+      MLFLOW_UI_URL: ${MLFLOW_UI_URL:-http://100.53.0.40:8050}
+    ports:
+      - "8050:8050"
+    volumes:
+      - consultas:/data
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  consultas:

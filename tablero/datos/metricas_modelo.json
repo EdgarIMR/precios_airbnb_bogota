@@ -6,68 +6,112 @@
   "umbral_reentrenamiento": 25.0,
   "evaluacion": {
     "v2": {
-      "mdape_nuevos": 19.333,
+      "mdape_nuevos": 20.145,
       "cobertura_nuevos": 81.495,
-      "mae_nuevos": 54515.861,
-      "mdape_todos": 16.389
+      "mae_nuevos": 53852.984,
+      "mdape_todos": 18.312
     },
     "v2_geo": {
-      "mdape_nuevos": 17.397,
+      "mdape_nuevos": 17.736,
       "cobertura_nuevos": 80.515,
-      "mae_nuevos": 49926.788,
-      "mdape_todos": 15.327
+      "mae_nuevos": 50466.795,
+      "mdape_todos": 16.447
     }
   },
   "versiones": [
     {
-      "nombre": "Ridge v1",
+      "nombre": "Mediana por localidad y tipo",
+      "mdape_nuevos": 29.04
+    },
+    {
+      "nombre": "Ridge",
       "mdape_nuevos": 25.21
     },
     {
-      "nombre": "LightGBM v2",
-      "mdape_nuevos": 19.33
+      "nombre": "LightGBM sin ubicación",
+      "mdape_nuevos": 20.14
     },
     {
-      "nombre": "LightGBM v2 + ubicación",
-      "mdape_nuevos": 17.4
+      "nombre": "LightGBM con ubicación",
+      "mdape_nuevos": 17.74
     }
   ],
   "mdape_por_localidad": {
-    "Barrios Unidos": {
-      "mdape": 14.45,
-      "n": 125
+    "v2": {
+      "Barrios Unidos": {
+        "mdape": 13.17,
+        "n": 125
+      },
+      "Candelaria": {
+        "mdape": 26.93,
+        "n": 69
+      },
+      "Chapinero": {
+        "mdape": 18.09,
+        "n": 465
+      },
+      "Engativa": {
+        "mdape": 19.49,
+        "n": 122
+      },
+      "Fontibon": {
+        "mdape": 22.41,
+        "n": 110
+      },
+      "Santa Fe": {
+        "mdape": 21.39,
+        "n": 133
+      },
+      "Suba": {
+        "mdape": 30.36,
+        "n": 89
+      },
+      "Teusaquillo": {
+        "mdape": 24.85,
+        "n": 246
+      },
+      "Usaquen": {
+        "mdape": 20.37,
+        "n": 273
+      }
     },
-    "Candelaria": {
-      "mdape": 27.23,
-      "n": 69
-    },
-    "Chapinero": {
-      "mdape": 17.39,
-      "n": 465
-    },
-    "Engativa": {
-      "mdape": 16.3,
-      "n": 122
-    },
-    "Fontibon": {
-      "mdape": 20.52,
-      "n": 110
-    },
-    "Santa Fe": {
-      "mdape": 21.49,
-      "n": 133
-    },
-    "Suba": {
-      "mdape": 32.15,
-      "n": 89
-    },
-    "Teusaquillo": {
-      "mdape": 22.85,
-      "n": 246
-    },
-    "Usaquen": {
-      "mdape": 20.3,
-      "n": 273
+    "v2_geo": {
+      "Barrios Unidos": {
+        "mdape": 12.04,
+        "n": 125
+      },
+      "Candelaria": {
+        "mdape": 25.61,
+        "n": 69
+      },
+      "Chapinero": {
+        "mdape": 15.89,
+        "n": 465
+      },
+      "Engativa": {
+        "mdape": 16.39,
+        "n": 122
+      },
+      "Fontibon": {
+        "mdape": 21.44,
+        "n": 110
+      },
+      "Santa Fe": {
+        "mdape": 21.91,
+        "n": 133
+      },
+      "Suba": {
+        "mdape": 35.9,
+        "n": 89
+      },
+      "Teusaquillo": {
+        "mdape": 17.12,
+        "n": 246
+      },
+      "Usaquen": {
+        "mdape": 17.38,
+        "n": 273
+      }
     }
   },
   "entrenamiento_final": {
@@ -81,5 +125,19 @@
   "percentiles_rango": [
     0.075,
     0.925
-  ]
+  ],
+  "min_anuncios_localidad": 500,
+  "parametros_modelo": {
+    "objective": "l1",
+    "n_estimators": 1500,
+    "learning_rate": 0.015,
+    "num_leaves": 23,
+    "max_depth": -1,
+    "min_child_samples": 20,
+    "subsample": 0.8,
+    "subsample_freq": 1,
+    "colsample_bytree": 0.7,
+    "reg_lambda": 0.0,
+    "reg_alpha": 0.0
+  }
 }

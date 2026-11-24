@@ -15,7 +15,8 @@ RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r re
 COPY predictor.py run.sh ./
 COPY app ./app
 COPY modelos ./modelos
-RUN chmod +x run.sh && chown -R api-user:api-user ./
+# sed: quita finales de línea de Windows (CRLF) por si el repo se clonó en Windows
+RUN sed -i 's/$//' run.sh && chmod +x run.sh && chown -R api-user:api-user ./
 
 USER api-user
 EXPOSE 8001

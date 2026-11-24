@@ -1,4 +1,6 @@
-# Tablero BogoPrice (además de `pip install -e .` en la raíz del repo)
+# Tablero BogoPrice para ejecución local (python tablero/app.py)
+#   pip install -r tablero/requirements.txt
+# Para regenerar los insumos con preparar_tablero.py también hace falta `pip install -e .`
 dash>=2.17
 plotly>=5.24
 requests>=2.31

@@ -1,7 +1,8 @@
 """Configuración central del proyecto BogoPrice.
 
-Todas las rutas y listas de columnas se definen aquí para que los cuadernos,
-la API y el tablero usen exactamente lo mismo.
+Rutas, capturas de datos y listas de columnas compartidas por los cuadernos y el
+entrenamiento del modelo final. La API (api/) y el tablero (tablero/) no dependen de
+este paquete: el modelo empaquetado trae todo lo que necesitan.
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ from pathlib import Path
 # Raíz del repositorio (src/bogoprice/config.py -> ../../)
 ROOT = Path(__file__).resolve().parents[2]
 
-# Carga variables de .env si python-dotenv está instalado (opcional)
+# Carga variables de .env si python-dotenv está instalado (ver .env.example)
 try:
     from dotenv import load_dotenv
 
@@ -21,16 +22,9 @@ except ImportError:
     pass
 
 DATA_DIR = ROOT / "data"
-RAW_DIR = DATA_DIR / "raw"            # Lo administra DVC (data/raw.dvc)
-PROCESSED_DIR = DATA_DIR / "processed"
-MODELS_DIR = ROOT / "models"
-REPORTS_DIR = ROOT / "reports"
 
-# Nombres de las capturas de Inside Airbnb. Ver docs/datos.md.
-# Se busca primero en data/raw/ (lo que deja `dvc pull`) y luego en las copias que hay
-# en Git en data/ (listings0626.csv.gz). Camino por defecto: las copias de Git.
-# OJO: los nombres dentro de data/raw/ NO están verificados; si `ls data/raw` muestra otros
-# nombres, ajustar la primera ruta de cada captura.
+# Capturas de Inside Airbnb Bogotá. Se busca primero en data/raw/ (lo que deja `dvc pull`)
+# y luego en las copias de data/ (listings0626.csv.gz y listings0926.csv.gz).
 CAPTURAS = {
     "2026-06": ["raw/listings_2026-06.csv.gz", "listings0626.csv.gz"],
     "2026-09": ["raw/listings_2026-09.csv.gz", "listings0926.csv.gz"],
@@ -59,11 +53,12 @@ TARGET_LOG = "log_price"
 PERCENTIL_ATIPICOS = 0.99   # Mismo criterio del EDA (Entrega 1)
 
 # Localidades habilitadas: mínimo de anuncios en la captura de entrenamiento.
-# PENDIENTE: el informe 1 dice que se fija con la exploración (la maqueta usa 500).
+# Con 500 quedan las 9 localidades con 700 o más anuncios (de Candelaria, 700, a
+# Chapinero, 5.097); la siguiente, Kennedy, tiene 313 (ver cuaderno 01).
 MIN_ANUNCIOS_LOCALIDAD = int(os.getenv("MIN_ANUNCIOS_LOCALIDAD", "500"))
 
-# --- Variables del modelo servible -----------------------------------------
-# Solo lo que el anfitrión ingresa en el formulario de la maqueta.
+# --- Variables del conjunto v1 (cuaderno 02) --------------------------------
+# Solo lo que el anfitrión ingresa en el formulario. variables_v2.py las amplía.
 CATEGORICAS = ["neighbourhood_cleansed", "room_type"]
 NUMERICAS = [
     "accommodates",
@@ -83,21 +78,6 @@ BINARIAS = [
 ]
 FEATURES = CATEGORICAS + NUMERICAS + BINARIAS
 
-# Variables extra solo para experimentos de referencia (NO servibles: un anuncio
-# nuevo no tiene reseñas ni historial de anfitrión).
-FEATURES_REFERENCIA = [
-    "host_is_superhost",
-    "host_identity_verified",
-    "number_of_reviews",
-    "review_scores_rating",
-    "review_scores_location",
-    "instant_bookable",
-]
-
 # --- MLflow ------------------------------------------------------------------
+# Servidor de seguimiento en EC2 (se define en .env; ver .env.example)
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
-MLFLOW_MODELO_REGISTRADO = "bogoprice"
-
-# --- Servicio ----------------------------------------------------------------
-MODELO_PATH = Path(os.getenv("MODELO_PATH", MODELS_DIR / "modelo.joblib"))
-API_URL = os.getenv("API_URL", "http://localhost:8000")
