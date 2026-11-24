@@ -42,7 +42,7 @@ precios_airbnb_bogota/
 ├── pyproject.toml            ← paquete de entrenamiento `bogoprice` (pip install -e .)
 ├── requirements-modelos.txt  ← librerías adicionales de los cuadernos (Jupyter, CatBoost, DVC...)
 ├── .env.example              ← plantilla de variables (MLflow); copiar como .env
-├── data/                     ← capturas de Inside Airbnb (versionadas con DVC: data/raw.dvc)
+├── data/                     ← capturas de Inside Airbnb (versionadas con DVC en S3: data/*.csv.gz.dvc)
 ├── notebooks/                ← EDA, variables, experimentos y modelo final
 ├── src/bogoprice/            ← pipeline de datos, variables, métricas, MLflow y modelo final
 ├── api/                      ← API FastAPI + predictor + modelos empaquetados + Dockerfile

@@ -23,11 +23,11 @@ except ImportError:
 
 DATA_DIR = ROOT / "data"
 
-# Capturas de Inside Airbnb Bogotá. Se busca primero en data/raw/ (lo que deja `dvc pull`)
-# y luego en las copias de data/ (listings0626.csv.gz y listings0926.csv.gz).
+# Capturas de Inside Airbnb Bogotá, versionadas con DVC (data/*.csv.gz.dvc, remoto S3 en
+# .dvc/config). Si no están en data/, se descargan con `dvc pull`.
 CAPTURAS = {
-    "2026-06": ["raw/listings_2026-06.csv.gz", "listings0626.csv.gz"],
-    "2026-09": ["raw/listings_2026-09.csv.gz", "listings0926.csv.gz"],
+    "2026-06": ["listings0626.csv.gz"],
+    "2026-09": ["listings0926.csv.gz"],
 }
 CAPTURA_ENTRENAMIENTO = "2026-06"
 CAPTURA_EVALUACION = "2026-09"
