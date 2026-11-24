@@ -1,4 +1,4 @@
 [core]
     remote = aws-remote
 ['remote "aws-remote"']
-    url = s3://airbnb-bogota-proyectog9/dvc-store
+    url = s3://jpineros16-bogoprice-dvc/datos

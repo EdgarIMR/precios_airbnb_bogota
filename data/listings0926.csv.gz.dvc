@@ -1,0 +1,5 @@
+outs:
+- md5: 27f57a46fbd788f61cebfdcded44c312
+  size: 10481458
+  hash: md5
+  path: listings0926.csv.gz
