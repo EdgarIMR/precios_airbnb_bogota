@@ -18,7 +18,7 @@ La solución se despliega mediante una **API de inferencia** y un **tablero inte
 
 ---
 
-## 👥 Integrantes del Equipo (Grupo 6)
+## 👥 Integrantes del Equipo (Grupo 9)
 
 - Edgar Iván Morales Rojas
   - e.moralesr@uniandes.edu.co
